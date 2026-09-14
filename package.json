@@ -38,7 +38,7 @@
     "@testing-library/user-event": "^14",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^4",
+    "@vitejs/plugin-react": "^6",
     "jsdom": "^26",
     "playwright": "^1.55",
     "sharp": "^0.35.4",
