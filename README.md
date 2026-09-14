@@ -6,6 +6,11 @@ Public home: [pulkitchandra1997/RepoDeck](https://github.com/pulkitchandra1997/R
 
 ## Develop
 
+RepoDeck is developed with AI coding assistance under human maintainer direction.
+See [the AI contribution policy](docs/agents/ai-contribution-policy.md) for disclosure
+and review expectations. Agents start with [AGENTS.md](AGENTS.md); contributors
+start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Install Node.js 22.12+ and Rust stable. Windows development requires the Visual Studio C++ build tools and WebView2. macOS requires Xcode command-line tools. Install Git with the HTTPS/SSH support and credential helpers you use for your repositories.
 
 Git must accept `git --no-lazy-fetch --version`. RepoDeck requires this capability for offline inspection and refuses older Git builds that lack it. Upgrade Git instead of bypassing the check. The Windows installer and macOS/Windows runtime checks use the same capability probe.

@@ -20,3 +20,17 @@ src-tauri/gen/
 *.dmg
 *.msi
 *.app/
+
+# Personal AI tool state; reviewed shared instructions remain trackable.
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/projects/
+.claude/memory/
+.claude/sessions/
+.codex/auth.json
+.codex/config.local.toml
+.codex/history.jsonl
+.codex/sessions/
+.codex/archived_sessions/
+.codex/log/
+.codex/state*.sqlite*
