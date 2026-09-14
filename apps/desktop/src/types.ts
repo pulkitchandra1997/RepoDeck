@@ -32,6 +32,7 @@ export interface Repository {
   behind: number;
   remotes: string[];
   originUrl?: string | null;
+  comparisonNotice?: string;
   changes: Change[];
 }
 export interface Entry {

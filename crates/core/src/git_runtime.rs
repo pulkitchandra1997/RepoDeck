@@ -49,7 +49,7 @@ fn find_in(paths: Vec<PathBuf>) -> Option<PathBuf> {
 pub fn version() -> Result<String, String> {
     let executable = executable().ok_or("Git was not found. Install Git, then check again.")?;
     let output = crate::process::run(
-        Command::new(executable).arg("--version"),
+        Command::new(executable).args(["--no-lazy-fetch", "--version"]),
         Duration::from_secs(5),
         8192,
         &AtomicBool::new(false),
@@ -57,7 +57,7 @@ pub fn version() -> Result<String, String> {
     .map_err(|_| "Git could not run. Repair its installation, then check again.")?;
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !output.status.success() || !text.starts_with("git version ") {
-        return Err("Git did not return a valid version. Repair its installation.".into());
+        return Err("Git must support --no-lazy-fetch for safe offline inspection. Upgrade Git, then check again.".into());
     }
     Ok(text)
 }

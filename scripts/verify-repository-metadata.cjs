@@ -20,6 +20,7 @@ const fs = require('node:fs/promises');
         const changes = [{ path: 'Main.java', index: ' ', worktree: 'M', originalPath: null }, { path: 'new.java', index: '?', worktree: '?', originalPath: null }, { path: 'conflict.java', index: 'U', worktree: 'U', originalPath: null }];
         const repo = (relativePath, changes) => ({ relativePath, error: null, status: { path: `C:/Projects/commerce/${relativePath}`, originUrl: `https://example.org/team/${relativePath === 'services/api' ? 'payments-api' : 'worker'}.git`, branch: 'main', detached: false, upstream: null, ahead: 0, behind: 0, remotes: [], changes } });
         const snapshot = { entries: [entry('services', true), entry('services/api', true, true), entry('services/api/pom.xml'), ...changes.map(c => entry(`services/api/${c.path}`)), entry('worker', true, true), entry('worker/pyproject.toml')], repositories: [repo('services/api', changes), repo('worker', [])], warnings: [] };
+        for (const item of snapshot.repositories) item.status.comparisonNotice = "Submodule working-file changes are shown in each submodule's own repository entry, not in its parent. Git content-filter comparisons are blocked; repository metadata must not be maliciously changed during inspection.";
         snapshot.entries.push(...['constructor', '__proto__', 'toString', 'main.constructor', 'csproj', 'go'].map(name => entry(`worker/${name}`)));
         let callback = 0;
         window.__TAURI_INTERNALS__ = { transformCallback: () => ++callback, unregisterCallback: () => {}, invoke: async (command, args) => {
@@ -38,6 +39,7 @@ const fs = require('node:fs/promises');
       });
       await page.goto(url);
       await page.getByRole('button', { name: /^payments-api/ }).click();
+      await page.getByText(/Submodule working-file changes are shown/).waitFor();
       assert.equal(await page.locator('.listing .list-search').count(), 1);
       assert.equal(await page.getByRole('textbox', { name: 'Search workspaces' }).count(), 1);
       await page.getByRole('textbox', { name: 'Search workspaces' }).fill('no-such-workspace');

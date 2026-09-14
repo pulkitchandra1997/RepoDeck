@@ -40,6 +40,7 @@ const snapshot: Snapshot = {
         ahead: 0,
         behind: 0,
         remotes: [],
+        comparisonNotice: "Submodule working-file changes are shown separately.",
         changes: [
           { path: "index.ts", originalPath: null, index: " ", worktree: "M" },
         ],
@@ -75,6 +76,13 @@ function backend(): Backend {
   };
 }
 describe("Workspace experience", () => {
+  it('shows the backend comparison limitation for the selected repository', async () => {
+    const api = backend();
+    api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
+    render(<App backend={api} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
+    expect(screen.getByText('Submodule working-file changes are shown separately.')).toBeTruthy();
+  });
   it('retains alias drafts across tabs and canonical checkout workspace identities', async () => {
     const api = backend();
     api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [

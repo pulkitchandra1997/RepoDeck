@@ -25,7 +25,7 @@ References: https://docs.github.com/en/repositories/releasing-projects-on-github
 
 ## Stable Release Gates
 
-The current tag pipeline explicitly runs the two filter-safety regressions. They currently fail, so release CI is intentionally blocked before packaging/publishing a tagged release. The prepared workflow is not evidence that a cloud release or macOS build has succeeded.
+The filter-safety regressions now run in the default suite and again on tags. The mitigation rejects filtered comparisons and skips implicit submodule working-file comparisons; it does not sandbox hostile concurrent metadata changes. Tagged publication also requires `REPODECK_RELEASE_APPROVED=true` as a repository Actions variable, which must remain unset until the following readiness checks are complete. The prepared workflow is not evidence that a cloud release or macOS build has succeeded.
 
 - Resolve high-priority security findings. Do not represent the app as safe for untrusted local Git configurations while executable-filter behavior is unresolved.
 - Verify dependency distribution obligations and bundle notices/license texts for shipped Rust/frontend components. Root MIT is not a substitute for dependency notices.

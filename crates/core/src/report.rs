@@ -21,6 +21,7 @@ struct RepositorySummary<'a> {
     ahead: u64,
     behind: u64,
     changes: &'a [crate::git::Change],
+    comparison_notice: &'a str,
 }
 
 fn summary(repository: &Repository) -> RepositorySummary<'_> {
@@ -35,6 +36,7 @@ fn summary(repository: &Repository) -> RepositorySummary<'_> {
         ahead: repository.ahead,
         behind: repository.behind,
         changes: &repository.changes,
+        comparison_notice: &repository.comparison_notice,
     }
 }
 
@@ -90,6 +92,9 @@ pub fn markdown(name: &str, scan: &Scan, repositories: &[Repository]) -> String 
             repo.behind,
             repo.changes.len()
         ));
+        if !repo.comparison_notice.is_empty() {
+            output.push_str(&format!("  - {}\n", escape(repo.comparison_notice)));
+        }
         for change in repo.changes {
             output.push_str(&format!(
                 "  - {} [{}{}]\n",

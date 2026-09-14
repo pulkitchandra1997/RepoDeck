@@ -4,7 +4,7 @@ use std::{
     path::{Component, Path},
     process::{Command, Output},
     sync::atomic::AtomicBool,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -19,6 +19,7 @@ pub struct Repository {
     pub remotes: Vec<String>,
     pub origin_url: Option<String>,
     pub changes: Vec<Change>,
+    pub comparison_notice: String,
 }
 
 pub(crate) fn run_output(path: &Path, args: &[&str]) -> Result<Output, String> {
@@ -35,6 +36,7 @@ fn run_output_controlled(
     input: &[u8],
     cancelled: &AtomicBool,
 ) -> Result<Output, String> {
+    let deadline = Instant::now() + Duration::from_secs(30);
     let checkout = path
         .canonicalize()
         .map_err(|_| "Repository checkout is unavailable")?;
@@ -44,9 +46,10 @@ fn run_output_controlled(
         &["rev-parse", "--show-toplevel"],
         &[],
         cancelled,
+        deadline,
     )?;
     if !probe.status.success() {
-        return Err("Cannot determine repository worktree".into());
+        return Err("Cannot determine repository worktree. Git must support --no-lazy-fetch; upgrade Git if needed.".into());
     }
     let reported =
         String::from_utf8(probe.stdout).map_err(|_| "Repository worktree path is not UTF-8")?;
@@ -63,7 +66,91 @@ fn run_output_controlled(
     }
     // Metadata may live elsewhere for linked worktrees. Bind only the working tree,
     // so a later core.worktree change cannot redirect this operation.
-    execute(&checkout, Some(&checkout), args, input, cancelled)
+    if args.contains(&"status") || args.contains(&"diff") {
+        reject_content_filters(&checkout, cancelled, deadline)?;
+    }
+    execute(&checkout, Some(&checkout), args, input, cancelled, deadline)
+}
+
+fn reject_content_filters(
+    checkout: &Path,
+    cancelled: &AtomicBool,
+    deadline: Instant,
+) -> Result<(), String> {
+    // Ask Git to resolve attributes (including macros, index fallback, and info/
+    // attributes) without converting any content or invoking filter drivers.
+    let files = execute(
+        checkout,
+        Some(checkout),
+        &["ls-files", "--cached", "-z"],
+        &[],
+        cancelled,
+        deadline,
+    )?;
+    if !files.status.success() || !files.stderr.is_empty() {
+        return Err("Cannot safely inspect tracked files before comparison".into());
+    }
+    let attributes = execute(
+        checkout,
+        Some(checkout),
+        &["check-attr", "-z", "--stdin", "filter"],
+        &files.stdout,
+        cancelled,
+        deadline,
+    )?;
+    if !attributes.status.success() || !attributes.stderr.is_empty() {
+        return Err("Cannot safely inspect Git attributes before comparison".into());
+    }
+    if !attributes.stdout.is_empty() && !attributes.stdout.ends_with(&[0]) {
+        return Err("Invalid Git attribute response; comparison stopped".into());
+    }
+    let fields: Vec<_> = attributes
+        .stdout
+        .strip_suffix(&[0])
+        .unwrap_or(&[])
+        .split(|b| *b == 0)
+        .collect();
+    if files.stdout.is_empty() && attributes.stdout.is_empty() {
+        return Ok(());
+    }
+    if fields.len() % 3 != 0 || fields.len() / 3 != files.stdout.iter().filter(|b| **b == 0).count()
+    {
+        return Err("Invalid Git attribute response; comparison stopped".into());
+    }
+    for record in fields.as_chunks::<3>().0 {
+        if record[1] != b"filter" {
+            return Err("Invalid Git attribute response; comparison stopped".into());
+        }
+        if !matches!(record[2], b"unspecified" | b"unset") {
+            return Err("Working-tree comparison unavailable: tracked files use Git content filters (including LFS). RepoDeck will not execute those filters. Inspect this checkout with your trusted Git client; file browsing remains available.".into());
+        }
+    }
+    // Git's text protocol cannot distinguish a missing/unset attribute from a
+    // string-valued driver literally named "unspecified" or "unset".
+    let config = execute(
+        checkout,
+        Some(checkout),
+        &["config", "--null", "--list", "--includes"],
+        &[],
+        cancelled,
+        deadline,
+    )?;
+    if !config.status.success()
+        || !config.stderr.is_empty()
+        || (!config.stdout.is_empty() && !config.stdout.ends_with(&[0]))
+    {
+        return Err("Cannot safely inspect Git filter configuration".into());
+    }
+    for record in config.stdout.split(|b| *b == 0) {
+        let key = record.split(|b| *b == b'\n').next().unwrap_or(&[]);
+        if key.starts_with(b"filter.unspecified.") || key.starts_with(b"filter.unset.") {
+            return Err(
+                "Working-tree comparison unavailable: ambiguous Git content filters are configured"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn execute(
@@ -72,22 +159,46 @@ fn execute(
     args: &[&str],
     input: &[u8],
     cancelled: &AtomicBool,
+    deadline: Instant,
 ) -> Result<Output, String> {
     let executable = crate::git_runtime::executable()
         .ok_or("Git could not start. Install Git and restart RepoDeck.")?;
     let mut command = Command::new(executable);
     command
+        .arg("--no-lazy-fetch")
         .arg("--no-optional-locks")
         .arg("-C")
         .arg(path)
-        .args(["-c", "core.fsmonitor=false", "-c", "color.ui=false"]);
+        .args([
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "color.ui=false",
+            "-c",
+            "status.submoduleSummary=false",
+            "-c",
+            "protocol.allow=never",
+        ]);
     if let Some(worktree) = worktree {
         command.arg("--work-tree").arg(worktree);
     }
     command
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_ALLOW_PROTOCOL", "")
         .env("GIT_PAGER", "cat");
+    for (key, _) in std::env::vars_os() {
+        let name = key.to_string_lossy().to_ascii_uppercase();
+        if name == "GIT_CONFIG"
+            || name == "GIT_CONFIG_PARAMETERS"
+            || name == "GIT_CONFIG_COUNT"
+            || name.starts_with("GIT_CONFIG_KEY_")
+            || name.starts_with("GIT_CONFIG_VALUE_")
+        {
+            command.env_remove(key);
+        }
+    }
     for key in [
         "GIT_DIR",
         "GIT_WORK_TREE",
@@ -103,7 +214,10 @@ fn execute(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let output = crate::process::run_input(&mut command, Duration::from_secs(30), 16 * 1024 * 1024, cancelled, input)
+    let timeout = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or("Git operation exceeded the 30-second time limit")?;
+    let output = crate::process::run_input(&mut command, timeout, 16 * 1024 * 1024, cancelled, input)
         .map_err(|error| match error {
             crate::process::ProcessError::Start => "Git could not start. Install Git and restart RepoDeck.",
             crate::process::ProcessError::Timeout => "Git exceeded the 30-second time limit. Try a smaller workspace or check repository health.",
@@ -221,6 +335,7 @@ pub fn inspect_controlled(path: &Path, cancelled: &AtomicBool) -> Result<Reposit
             "-z",
             "--untracked-files=all",
             "--ignored=matching",
+            "--ignore-submodules=dirty",
         ],
         cancelled,
     )?)?;
@@ -234,6 +349,7 @@ pub fn inspect_controlled(path: &Path, cancelled: &AtomicBool) -> Result<Reposit
         remotes,
         origin_url,
         changes,
+        comparison_notice: "Submodule working-file changes are shown in each submodule's own repository entry, not in its parent. Git content-filter comparisons are blocked; repository metadata must not be maliciously changed during inspection.".into(),
     })
 }
 
@@ -252,6 +368,8 @@ pub fn diff(path: &Path, file: &str, staged: bool) -> Result<String, String> {
         "--no-ext-diff",
         "--no-textconv",
         "--no-color",
+        "--ignore-submodules=dirty",
+        "--submodule=short",
     ];
     if staged {
         args.push("--cached");

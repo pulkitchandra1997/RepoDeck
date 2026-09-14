@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a focused improvement to RepoDeck
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the workflow and who is affected. Do not include private repository content.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include alternatives and how you would verify the result.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Both Windows and macOS
+        - Windows
+        - macOS
+        - Future cloud or team collaboration

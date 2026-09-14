@@ -177,10 +177,9 @@ fn repo_with_marker_filter() -> TempDir {
 }
 
 #[test]
-#[ignore = "P1 stable-release blocker: inspection executes configured clean filters"]
 fn inspection_does_not_execute_clean_filters() {
     let dir = repo_with_marker_filter();
-    inspect(dir.path()).unwrap();
+    assert!(inspect(dir.path()).unwrap_err().contains("content filters"));
     assert_eq!(
         fs::read_to_string(dir.path().join(".git/repodeck-filter-marker")).ok(),
         None,
@@ -189,17 +188,182 @@ fn inspection_does_not_execute_clean_filters() {
 }
 
 #[test]
-#[ignore = "P1 stable-release blocker: unstaged diff executes configured clean filters"]
 fn diff_does_not_execute_clean_filters() {
     let dir = repo_with_marker_filter();
     assert!(diff(dir.path(), "probe.txt", false)
-        .unwrap()
-        .contains("+modified"));
+        .unwrap_err()
+        .contains("content filters"));
     assert_eq!(
         fs::read_to_string(dir.path().join(".git/repodeck-filter-marker")).ok(),
         None,
         "P1: unstaged diff executed a repository-configured clean filter"
     );
+}
+
+#[test]
+fn process_filter_from_included_config_is_not_started() {
+    let dir = repo_with_marker_filter();
+    git(
+        dir.path(),
+        &["config", "--unset", "filter.repodeck-audit.clean"],
+    );
+    fs::write(dir.path().join(".git/driver.conf"),
+        "[filter \"repodeck-audit\"]\nprocess = printf executed > .git/process-marker\nrequired = true\n").unwrap();
+    git(dir.path(), &["config", "include.path", "driver.conf"]);
+    assert!(inspect(dir.path()).unwrap_err().contains("content filters"));
+    assert!(diff(dir.path(), "probe.txt", false)
+        .unwrap_err()
+        .contains("content filters"));
+    assert!(!dir.path().join(".git/process-marker").exists());
+}
+
+#[test]
+fn unused_filter_configuration_does_not_block_ordinary_files() {
+    let dir = repo_with_marker_filter();
+    fs::write(dir.path().join(".gitattributes"), "probe.txt -filter\n").unwrap();
+    assert!(!inspect(dir.path()).unwrap().changes.is_empty());
+    assert!(diff(dir.path(), "probe.txt", false)
+        .unwrap()
+        .contains("+modified"));
+    assert!(!dir.path().join(".git/repodeck-filter-marker").exists());
+}
+
+#[test]
+fn info_attributes_and_index_fallback_filters_are_blocked() {
+    let dir = repo_with_marker_filter();
+    fs::remove_file(dir.path().join(".gitattributes")).unwrap();
+    assert!(inspect(dir.path()).unwrap_err().contains("content filters"));
+    fs::write(dir.path().join(".gitattributes"), "").unwrap();
+    fs::write(
+        dir.path().join(".git/info/attributes"),
+        "probe.txt filter=repodeck-audit\n",
+    )
+    .unwrap();
+    assert!(diff(dir.path(), "probe.txt", true)
+        .unwrap_err()
+        .contains("content filters"));
+    assert!(!dir.path().join(".git/repodeck-filter-marker").exists());
+}
+
+#[test]
+fn ambiguous_driver_names_cannot_bypass_filter_preflight() {
+    for driver in ["unset", "unspecified", "set"] {
+        let dir = repo_with_marker_filter();
+        fs::write(
+            dir.path().join(".gitattributes"),
+            format!("probe.txt filter={driver}\n"),
+        )
+        .unwrap();
+        git(
+            dir.path(),
+            &[
+                "config",
+                &format!("filter.{driver}.clean"),
+                "printf executed > .git/ambiguous-marker; cat",
+            ],
+        );
+        assert!(inspect(dir.path()).unwrap_err().contains("content filters"));
+        assert!(!dir.path().join(".git/ambiguous-marker").exists());
+    }
+}
+
+#[test]
+fn attribute_diagnostics_stop_comparison() {
+    let dir = repo_with_marker_filter();
+    fs::write(
+        dir.path().join(".gitattributes"),
+        "probe.txt invalid!attribute\n",
+    )
+    .unwrap();
+    assert!(inspect(dir.path())
+        .unwrap_err()
+        .contains("safely inspect Git attributes"));
+    assert!(!dir.path().join(".git/repodeck-filter-marker").exists());
+}
+
+#[test]
+fn missing_objects_do_not_start_promisor_helpers() {
+    let dir = repo();
+    fs::write(dir.path().join("probe.txt"), "original\n").unwrap();
+    commit(dir.path());
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .args(["rev-parse", "HEAD:probe.txt"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let oid = String::from_utf8(output.stdout).unwrap();
+    let oid = oid.trim();
+    fs::remove_file(
+        dir.path()
+            .join(".git/objects")
+            .join(&oid[..2])
+            .join(&oid[2..]),
+    )
+    .unwrap();
+    git(
+        dir.path(),
+        &[
+            "config",
+            "remote.origin.url",
+            "ext::sh -c touch% promisor-marker",
+        ],
+    );
+    git(dir.path(), &["config", "remote.origin.promisor", "true"]);
+    git(
+        dir.path(),
+        &["config", "remote.origin.partialclonefilter", "blob:none"],
+    );
+    git(dir.path(), &["config", "protocol.ext.allow", "always"]);
+    fs::write(dir.path().join("probe.txt"), "changed\n").unwrap();
+    assert!(diff(dir.path(), "probe.txt", false).is_err());
+    assert!(!dir.path().join("promisor-marker").exists());
+}
+
+#[test]
+fn inherited_config_redirect_cannot_hide_global_filter() {
+    const CHILD: &str = "REPODECK_FILTER_SECURITY_CHILD";
+    if let Some(root) = std::env::var_os(CHILD) {
+        let root = Path::new(&root);
+        assert!(inspect(root).unwrap_err().contains("content filters"));
+        assert!(!root.join(".git/global-marker").exists());
+        return;
+    }
+    let dir = repo();
+    fs::write(dir.path().join("probe.txt"), "original\n").unwrap();
+    fs::write(
+        dir.path().join(".gitattributes"),
+        "probe.txt filter=unset\n",
+    )
+    .unwrap();
+    commit(dir.path());
+    fs::write(dir.path().join("probe.txt"), "changed\n").unwrap();
+    fs::write(
+        dir.path().join(".git/global.conf"),
+        "[filter \"unset\"]\nclean = printf executed > .git/global-marker; cat\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join(".git/empty.conf"), "").unwrap();
+    let result = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "inherited_config_redirect_cannot_hide_global_filter",
+            "--nocapture",
+        ])
+        .env(CHILD, dir.path())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", dir.path().join(".git/global.conf"))
+        .env("GIT_CONFIG", dir.path().join(".git/empty.conf"))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!dir.path().join(".git/global-marker").exists());
 }
 
 #[test]

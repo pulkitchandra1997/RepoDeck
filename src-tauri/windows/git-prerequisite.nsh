@@ -5,7 +5,7 @@ Var RepoDeckGitVersion
 Function RepoDeckProbeGit
   StrCpy $RepoDeckGitVersion ""
   IfFileExists "$RepoDeckGit" 0 probe_done
-  nsExec::ExecToStack /TIMEOUT=5000 '"$RepoDeckGit" --version'
+  nsExec::ExecToStack /TIMEOUT=5000 '"$RepoDeckGit" --no-lazy-fetch --version'
   Pop $R0
   Pop $R1
   StrCmp $R0 "0" 0 probe_done

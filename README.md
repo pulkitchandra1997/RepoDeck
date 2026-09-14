@@ -2,9 +2,13 @@
 
 Local workspace manager for Git repositories, ordinary project folders and agent configuration. V1 is under development; installers are not yet release-ready.
 
+Planned public home: [pulkitchandra1997/repodeck](https://github.com/pulkitchandra1997/repodeck), maintained under the author's personal GitHub account. Publication is pending; this link is not evidence that a remote repository or release exists.
+
 ## Develop
 
 Install Node.js 22.12+ and Rust stable. Windows development requires the Visual Studio C++ build tools and WebView2. macOS requires Xcode command-line tools. Install Git with the HTTPS/SSH support and credential helpers you use for your repositories.
+
+Git must accept `git --no-lazy-fetch --version`. RepoDeck requires this capability for offline inspection and refuses older Git builds that lack it. Upgrade Git instead of bypassing the check. The Windows installer and macOS/Windows runtime checks use the same capability probe.
 
 ```sh
 npm ci
@@ -22,6 +26,8 @@ The browser development server at `http://localhost:1420` is for frontend develo
 For reusable hands-on test data, run `npm run fixtures:create` and add the printed workspace folder in RepoDeck. See [the fixture layout and checklist](docs/testing/manual-workspace.md). The generator creates separate local repositories with known states and optionally copies existing public checkouts without downloading or executing project code.
 
 The core suite includes a real local submodule fixture covering parent/child discovery, detached HEAD, modified and untracked files, diff/preview, external metadata notifications, and deinitialization. Its file-protocol permission is limited to the fixture's Git command; global Git settings are not changed.
+
+Content-filter comparisons, including LFS, currently stop with an explicit limitation message instead of executing filters or claiming a clean status. Parent repositories show submodule commit changes but not submodule working-file dirtiness; inspect the separately discovered submodule entry. This mitigation assumes trusted local metadata and does not protect against concurrent malicious metadata changes. See [security boundaries](SECURITY.md).
 
 ```sh
 cargo test -p repodeck-core

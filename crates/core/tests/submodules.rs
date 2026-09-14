@@ -37,6 +37,52 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 #[test]
+fn parent_inspection_does_not_execute_submodule_filters() {
+    let fixture = tempfile::tempdir().unwrap();
+    let source = fixture.path().join("source");
+    let parent = fixture.path().join("parent");
+    for root in [&source, &parent] {
+        fs::create_dir(root).unwrap();
+        git(root, &["init", "--initial-branch=main"]);
+    }
+    fs::write(source.join("probe.txt"), "original\n").unwrap();
+    fs::write(source.join(".gitattributes"), "probe.txt filter=child\n").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "fixture"]);
+    git(
+        &parent,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            source.to_str().unwrap(),
+            "child",
+        ],
+    );
+    git(&parent, &["commit", "-m", "submodule"]);
+    let child = parent.join("child");
+    git(
+        &child,
+        &[
+            "config",
+            "filter.child.clean",
+            "printf executed > child-filter-marker; cat",
+        ],
+    );
+    git(&parent, &["config", "status.submoduleSummary", "true"]);
+    git(&parent, &["config", "diff.submodule", "diff"]);
+    fs::write(child.join("probe.txt"), "changed\n").unwrap();
+    repository::inspect(&parent).unwrap();
+    repository::diff(&parent, "child", false).unwrap();
+    assert!(!child.join("child-filter-marker").exists());
+    assert!(repository::inspect(&child)
+        .unwrap_err()
+        .contains("content filters"));
+    assert!(!child.join("child-filter-marker").exists());
+}
+
+#[test]
 fn inspects_submodule_changes_watches_its_metadata_and_handles_deinitialization() {
     let fixture = tempfile::tempdir().unwrap();
     let source = fixture.path().join("source");
@@ -86,10 +132,11 @@ fn inspects_submodule_changes_watches_its_metadata_and_handles_deinitialization(
         .status
         .as_ref()
         .unwrap();
-    assert!(parent
+    assert!(!parent
         .changes
         .iter()
         .any(|change| change.path == "deps/library" && change.worktree == 'M'));
+    assert!(parent.comparison_notice.contains("Submodule"));
     let nested = snapshot
         .repositories
         .iter()

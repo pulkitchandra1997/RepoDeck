@@ -34,6 +34,7 @@ fn fixture() -> (Scan, Vec<Repository>) {
                 "https://username:credential@git.example.org/team/app.git?token=credential".into(),
             ],
             ahead: 2,
+            comparison_notice: "Submodule working-file changes are shown separately.".into(),
             ..Default::default()
         }],
     )
@@ -47,6 +48,10 @@ fn json_export_contains_status_inventory_and_warnings_without_local_paths_or_cre
     assert_eq!(parsed["schemaVersion"], 1);
     assert_eq!(parsed["workspace"], "Application");
     assert_eq!(parsed["repositories"][0]["ahead"], 2);
+    assert_eq!(
+        parsed["repositories"][0]["comparisonNotice"],
+        "Submodule working-file changes are shown separately."
+    );
     assert_eq!(parsed["files"][0]["path"], "notes/design.md");
     assert_eq!(parsed["agentConfigs"][0], ".claude/settings.json");
     assert_eq!(parsed["warnings"][0], "Depth limit reached");
@@ -60,6 +65,7 @@ fn markdown_export_handles_markup_in_names_and_includes_actionable_status() {
     let output = report::markdown("<script>alert(1)</script>", &scan, &repos);
     assert!(output.contains("main"));
     assert!(output.contains("2 ahead"));
+    assert!(output.contains("Submodule working-file changes are shown separately."));
     assert!(output.contains("notes/design.md"));
     assert!(output.contains(".claude/settings.json"));
     assert!(output.contains("Depth limit reached"));

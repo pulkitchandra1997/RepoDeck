@@ -687,6 +687,7 @@ export default function App({ backend }: { backend: Backend }) {
                             behind
                           </span>
                         </div>
+                        {repo.status.comparisonNotice && <p className="muted">{repo.status.comparisonNotice}</p>}
                         {repo.status?.remotes.map((r, index) => (
                           <RemoteLink key={`${active}:${selected}:${index}:${r}`} backend={backend} remote={r} />
                         ))}
