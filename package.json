@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "lucide-react": "^0.468",
+    "lucide-react": "^1.45",
     "react": "^19",
     "react-dom": "^19"
   },
