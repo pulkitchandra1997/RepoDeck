@@ -2,7 +2,7 @@
 
 Local workspace manager for Git repositories, ordinary project folders and agent configuration. V1 is under development; installers are not yet release-ready.
 
-Planned public home: [pulkitchandra1997/repodeck](https://github.com/pulkitchandra1997/repodeck), maintained under the author's personal GitHub account. Publication is pending; this link is not evidence that a remote repository or release exists.
+Public home: [pulkitchandra1997/RepoDeck](https://github.com/pulkitchandra1997/RepoDeck), maintained under the author's personal GitHub account. Source publication does not imply that installers are production-ready; see the release gates below.
 
 ## Develop
 
