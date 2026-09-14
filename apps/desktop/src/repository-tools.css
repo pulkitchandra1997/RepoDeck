@@ -1,0 +1,8 @@
+.repository-tools { border-top: 1px solid var(--line); padding: 10px 20px; font-size: 11px; }
+.repository-tools form { display: flex; gap: 6px; margin-top: 8px; }
+.repository-tools input { width: 100%; min-width: 0; }
+.git-config { max-height: 190px; overflow: auto; margin: 8px 0; }
+.git-config > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.git-config dt, .git-config dd { margin: 0; overflow-wrap: anywhere; }
+.git-config dd { color: var(--muted); }
+.ignore-result { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; overflow-wrap: anywhere; }

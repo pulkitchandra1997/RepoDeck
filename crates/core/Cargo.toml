@@ -1,0 +1,16 @@
+[package]
+name = "repodeck-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+dunce = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+tempfile = "3"
+notify-debouncer-mini = { version = "0.7", features = ["macos_fsevent"] }
+
+[dev-dependencies]

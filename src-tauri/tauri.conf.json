@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RepoDeck",
+  "version": "0.1.0",
+  "identifier": "org.repodeck.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "RepoDeck", "width": 1280, "height": 820, "minWidth": 800, "minHeight": 560 }],
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; connect-src ipc: http://ipc.localhost" }
+  },
+  "bundle": {
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "active": true,
+    "targets": "all",
+    "macOS": { "minimumSystemVersion": "12.0" },
+    "windows": { "nsis": { "installMode": "currentUser", "installerHooks": "windows/git-prerequisite.nsh" } }
+  }
+}

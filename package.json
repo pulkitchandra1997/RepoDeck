@@ -1,0 +1,49 @@
+{
+  "name": "repodeck",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "fixtures:create": "node scripts/create-test-workspace.cjs",
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "check:release": "node scripts/check-release.cjs",
+    "test:release": "node --test scripts/release.test.cjs",
+    "test": "vitest run",
+    "desktop": "tauri dev",
+    "package": "tauri build",
+    "test:ui": "node scripts/verify-ui.cjs",
+    "test:contrast": "node scripts/verify-contrast.cjs",
+    "test:git-setup": "node scripts/verify-git-setup.cjs",
+    "test:onboarding": "node scripts/verify-onboarding.cjs",
+    "test:repository-metadata": "npm run build && node scripts/verify-repository-metadata.cjs",
+    "test:preview-performance": "npm run build && node scripts/verify-preview-performance.cjs",
+    "test:native": "node scripts/verify-native.cjs",
+    "test:private-git": "node scripts/verify-private-git.cjs",
+    "bench:workspace": "cargo test -p repodeck-core --release --test large_workspace -- --ignored --nocapture",
+    "test:large-native": "node scripts/verify-large-native.cjs",
+    "icons": "node scripts/create-icon.mjs && tauri icon src-tauri/icons/source.png"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "lucide-react": "^0.468",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@testing-library/react": "^16",
+    "@testing-library/user-event": "^14",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "jsdom": "^26",
+    "playwright": "^1.55",
+    "sharp": "^0.35.4",
+    "typescript": "^5",
+    "vite": "^6",
+    "vitest": "^4.1.11"
+  }
+}

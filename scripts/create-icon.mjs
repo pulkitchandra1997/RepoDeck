@@ -1,0 +1,10 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { FolderGit2 } from 'lucide-react';
+import { createRequire } from 'node:module';
+import { mkdir } from 'node:fs/promises';
+const require = createRequire(import.meta.url);
+const sharp = require('sharp');
+await mkdir('src-tauri/icons', { recursive: true });
+const icon = renderToStaticMarkup(React.createElement(FolderGit2, { width: 512, height: 512, color: '#18725b', strokeWidth: 1.5 }));
+await sharp(Buffer.from(icon)).resize(512, 512).png().toFile('src-tauri/icons/source.png');

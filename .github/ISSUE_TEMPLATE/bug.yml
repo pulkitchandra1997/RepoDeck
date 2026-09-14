@@ -1,0 +1,22 @@
+name: Bug report
+description: Report incorrect application behavior
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: Version and operating system
+      placeholder: RepoDeck version, Windows/macOS version and architecture
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction
+      description: Include steps, expected behavior and actual behavior. Remove credentials and private content.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Redacted logs, screenshots or a public test repository.
