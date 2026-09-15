@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "node scripts/generate-notices.cjs --bundle && npm run build"
+  },
+  "bundle": {
+    "resources": {
+      "../.tools/notices/THIRD-PARTY-NOTICES.json": "THIRD-PARTY-NOTICES.json"
+    }
+  }
+}

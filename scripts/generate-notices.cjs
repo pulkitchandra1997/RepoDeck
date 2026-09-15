@@ -3,12 +3,20 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify, TextDecoder } = require('node:util');
 const semver = require('semver');
+const { createHash } = require('node:crypto');
 
 const TARGETS = Object.freeze(['x86_64-pc-windows-msvc', 'aarch64-apple-darwin', 'x86_64-apple-darwin']);
 const LIMIT = 32 * 1024 * 1024;
 class NoticeError extends Error {}
 function requireNotice(ok, message) { if (!ok) throw new NoticeError(message); }
 const sorted = values => [...values].sort();
+const sha256 = value => createHash('sha256').update(value).digest('hex');
+const isLicenseFile = file => /^(licen[cs]e|copying)(?:$|[._-])/i.test(path.posix.basename(file));
+const safeRelative = file => typeof file === 'string' && file.length <= 512 && file.split('/').every(part => /^[a-zA-Z0-9_.-]+$/.test(part) && part !== '.' && part !== '..');
+function checkPrivate(value, privateRoots, label) {
+  const combined = value.replaceAll('\\', '/').toLowerCase();
+  requireNotice(!privateRoots.some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/|(?<![:/])\/\/[^/\s]+\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
+}
 function reserve(budget, value) {
   // Count escaped text before retaining it; repeated target evidence counts too.
   budget.bytes += Buffer.byteLength(JSON.stringify(value)) + 1024;
@@ -23,7 +31,7 @@ async function read(file, limit = LIMIT) {
     const bytes = Buffer.alloc(limit + 1);
     const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
     requireNotice(bytesRead <= limit, 'Input exceeds size limit');
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytesRead));
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, bytesRead));
   } finally { await handle.close(); }
 }
 async function json(file) { return JSON.parse(await read(file)); }
@@ -63,7 +71,7 @@ function licenseIdentifier(value, label) {
   return value;
 }
 
-async function texts(directory, declaredFile, label, privateRoots, budget) {
+async function texts(directory, declaredFile, label, privateRoots, budget, allowMissing = false) {
   const base = await fs.realpath(directory);
   const files = new Set();
   let visited = 0;
@@ -85,7 +93,7 @@ async function texts(directory, declaredFile, label, privateRoots, budget) {
     requireNotice(typeof declaredFile === 'string' && !path.isAbsolute(declaredFile) && !declaredFile.includes('\\') && !declaredFile.split('/').includes('..'), `${label}: unsupported license file location`);
     files.add(declaredFile);
   }
-  requireNotice([...files].some(file => /^(licen[cs]e|copying)(?:$|[._-])/i.test(path.posix.basename(file)) || file === declaredFile), `${label}: missing license text`);
+  requireNotice(allowMissing || [...files].some(file => isLicenseFile(file) || file === declaredFile), `${label}: missing license text`);
   const result = [];
   let total = 0;
   for (const file of sorted(files)) {
@@ -96,12 +104,78 @@ async function texts(directory, declaredFile, label, privateRoots, budget) {
     requireNotice(text.trim().length > 0, `${label}: empty notice text`);
     total += Buffer.byteLength(text);
     requireNotice(total <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
-    const combined = `${file}\n${text}`.replaceAll('\\', '/').toLowerCase();
-    requireNotice(!privateRoots.concat(base).some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/|(?<![:/])\/\/[^/\s]+\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
+    checkPrivate(`${file}\n${text}`, privateRoots.concat(base), label);
     reserve(budget, { file, text });
-    result.push({ file, text });
+    result.push({ file, text, sha256: sha256(text), provenance: { kind: 'package' } });
   }
   return result;
+}
+
+async function loadFallbacks(root, budget, privateRoots) {
+  const file = path.join(root, 'scripts/license-fallbacks/manifest.json');
+  let stat;
+  try { stat = await fs.lstat(file); }
+  catch (error) { if (error.code === 'ENOENT') return new Map(); throw error; }
+  requireNotice(stat.isFile() && await fs.realpath(file) === file, 'Fallback manifest must be a regular file, not linked or escaping the checkout');
+  const manifest = JSON.parse(await read(file, 4 * 1024 * 1024));
+  requireNotice(manifest.schemaVersion === 1 && Array.isArray(manifest.sources) && manifest.sources.length <= 128 && Array.isArray(manifest.packages) && manifest.packages.length <= 256, 'Invalid fallback manifest or entry limit');
+  const pinned = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+  const repository = value => typeof value === 'string' && /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/?$/.test(value);
+  const sourceKeys = new Set();
+  for (const source of manifest.sources) {
+    requireNotice(repository(source.repository) && pinned(source.revision) && safeRelative(source.file), 'Invalid fallback upstream location; immutable revision and relative path required');
+    requireNotice(['license', 'notice', 'evidence'].includes(source.role), 'Invalid fallback source role');
+    requireNotice(typeof source.text === 'string' && source.text.trim() && Buffer.byteLength(source.text) <= 2 * 1024 * 1024, 'Fallback text empty or size limit exceeded');
+    requireNotice(typeof source.sha256 === 'string' && /^[a-f0-9]{64}$/.test(source.sha256) && sha256(source.text) === source.sha256, 'Fallback text hash mismatch');
+    const key = `${source.repository}/${source.revision}/${source.file}`;
+    requireNotice(!sourceKeys.has(key), 'Duplicate fallback source');
+    sourceKeys.add(key);
+    checkPrivate(`${source.repository}\n${source.file}\n${source.text}`, privateRoots, 'Fallback');
+  }
+  const result = new Map();
+  for (const entry of manifest.packages) {
+    const key = identity(entry.name, entry.version);
+    requireNotice(!result.has(key), 'Duplicate fallback package');
+    requireNotice(repository(entry.repository) && pinned(entry.revision) && (entry.pathInVcs === null || entry.pathInVcs === '' || safeRelative(entry.pathInVcs)), 'Invalid fallback package provenance');
+    licenseIdentifier(entry.license, 'Fallback');
+    requireNotice(['text-reviewed', 'blocked'].includes(entry.status) && typeof entry.reason === 'string' && entry.reason.trim() && entry.reason.length <= 2048, 'Invalid fallback review status or reason');
+    requireNotice(Array.isArray(entry.sources) && entry.sources.length <= 32 && new Set(entry.sources).size === entry.sources.length && entry.sources.every(index => Number.isInteger(index) && manifest.sources[index]), 'Invalid fallback source references');
+    const sources = entry.sources.map(index => manifest.sources[index]);
+    requireNotice(sources.every(source => source.repository === entry.repository && source.revision === entry.revision), 'Fallback source does not match package provenance');
+    requireNotice(entry.status === 'blocked' || sources.some(source => source.role === 'license'), 'Fallback requires reviewed license text');
+    requireNotice(sources.reduce((sum, source) => sum + Buffer.byteLength(source.text), 0) <= 8 * 1024 * 1024, 'Fallback package text limit exceeded');
+    checkPrivate(entry.reason, privateRoots, 'Fallback');
+    result.set(key, { ...entry, sources });
+  }
+  reserve(budget, manifest);
+  return result;
+}
+
+async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
+  const directory = path.dirname(pkg.manifest_path);
+  const local = await texts(directory, pkg.license_file, label, privateRoots, budget, true);
+  const fallback = fallbacks.get(identity(pkg.name, pkg.version));
+  let reason;
+  if (fallback) {
+    requireNotice(pkg.source === 'registry+https://github.com/rust-lang/crates.io-index' && pkg.repository === fallback.repository && pkg.license === fallback.license, `${label}: fallback package identity mismatch`);
+    const vcsFile = path.join(await fs.realpath(directory), '.cargo_vcs_info.json');
+    requireNotice((await fs.lstat(vcsFile)).isFile() && await fs.realpath(vcsFile) === vcsFile, `${label}: linked fallback provenance is unsupported`);
+    const vcs = JSON.parse(await read(vcsFile, 16384));
+    requireNotice(vcs.git?.sha1 === fallback.revision && vcs.git?.dirty !== true && (vcs.path_in_vcs ?? null) === fallback.pathInVcs, `${label}: fallback revision or crate path mismatch`);
+    for (const source of fallback.sources) {
+      const evidence = { file: source.file, text: source.text, sha256: source.sha256,
+        provenance: { kind: 'pinned-upstream', repository: source.repository, revision: source.revision,
+          url: `${source.repository.replace(/\/$/, '')}/blob/${source.revision}/${source.file}`, role: source.role } };
+      reserve(budget, evidence);
+      local.push(evidence);
+    }
+    if (fallback.status === 'blocked') reason = fallback.reason;
+  }
+  const hasLicense = local.some(item => item.provenance.kind === 'package'
+    ? isLicenseFile(item.file) || item.file === pkg.license_file : item.provenance.role === 'license');
+  if (!hasLicense && !reason) reason = 'Missing license text; no reviewed pinned upstream fallback';
+  requireNotice(local.reduce((sum, item) => sum + Buffer.byteLength(item.text), 0) <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
+  return { texts: local, ...(reason ? { unresolved: reason } : {}) };
 }
 
 async function npmPackages(root, budget, privateRoots) {
@@ -166,7 +240,7 @@ async function npmPackages(root, budget, privateRoots) {
   return result;
 }
 
-async function cargoPackages(root, target, metadata, budget, privateRoots) {
+async function cargoPackages(root, target, metadata, budget, privateRoots, fallbacks) {
   requireNotice(metadata?.version === 1 && Array.isArray(metadata.packages) && Array.isArray(metadata.resolve?.nodes) && Array.isArray(metadata.workspace_members), 'Invalid or incomplete Cargo metadata');
   requireNotice(metadata.packages.length <= 10000 && metadata.resolve.nodes.length <= 10000, 'Cargo package limit exceeded');
   const packages = new Map(metadata.packages.map(pkg => [pkg.id, pkg]));
@@ -186,7 +260,7 @@ async function cargoPackages(root, target, metadata, budget, privateRoots) {
       const license = licenseIdentifier(pkg.license, label);
       requireNotice(typeof pkg.manifest_path === 'string' && path.isAbsolute(pkg.manifest_path), `${label}: invalid manifest location`);
       reserve(budget, { name: pkg.name, version: pkg.version, license, targets: [target] });
-      result.push({ ecosystem: 'cargo', name: pkg.name, version: pkg.version, license, targets: [target], texts: await texts(path.dirname(pkg.manifest_path), pkg.license_file, label, privateRoots, budget) });
+      result.push({ ecosystem: 'cargo', name: pkg.name, version: pkg.version, license, targets: [target], ...await cargoTexts(pkg, label, privateRoots, budget, fallbacks) });
     }
     for (const dep of node.deps) {
       requireNotice(Array.isArray(dep.dep_kinds) && dep.dep_kinds.length > 0 && dep.dep_kinds.every(kind => [null, 'build', 'dev'].includes(kind.kind)), 'Unsupported Cargo metadata dependency kind');
@@ -197,12 +271,13 @@ async function cargoPackages(root, target, metadata, budget, privateRoots) {
   return result;
 }
 
-async function generateNotices({ root = process.cwd(), metadata, exec = promisify(execFile) } = {}) {
+async function generateNotices({ root = process.cwd(), metadata, exec = promisify(execFile), inventory = false } = {}) {
   try {
     const requestedRoot = path.resolve(root);
     root = await fs.realpath(root);
     const privateRoots = [requestedRoot, root];
     const budget = { bytes: 1024 };
+    const fallbacks = await loadFallbacks(root, budget, privateRoots);
     const records = await npmPackages(root, budget, privateRoots);
     for (const target of TARGETS) {
       let data;
@@ -213,18 +288,23 @@ async function generateNotices({ root = process.cwd(), metadata, exec = promisif
           data = JSON.parse(stdout);
         } catch { throw new NoticeError(`Cargo metadata failed for ${target}; check locked offline cache/toolchain locally`); }
       }
-      records.push(...await cargoPackages(root, target, data, budget, privateRoots));
+      records.push(...await cargoPackages(root, target, data, budget, privateRoots, fallbacks));
     }
     const merged = new Map();
     for (const record of records) {
       const key = `${record.ecosystem}:${record.name}@${record.version}`;
       const previous = merged.get(key);
       if (previous) {
-        requireNotice(previous.license === record.license && JSON.stringify(previous.texts) === JSON.stringify(record.texts), `${key}: conflicting license evidence`);
+        requireNotice(previous.license === record.license && previous.unresolved === record.unresolved && JSON.stringify(previous.texts) === JSON.stringify(record.texts), `${key}: conflicting license evidence`);
         previous.targets = sorted(new Set([...previous.targets, ...record.targets]));
       } else merged.set(key, record);
     }
-    const output = JSON.stringify({ schemaVersion: 1, targets: TARGETS, review: 'Collected dependency declarations and source texts; not a legal audit. Review distribution obligations, bundled/native components and build feature coverage before release.', packages: sorted(merged.keys()).map(key => merged.get(key)) }, null, 2) + '\n';
+    const packages = sorted(merged.keys()).map(key => merged.get(key));
+    const unresolved = packages.filter(pkg => pkg.unresolved).map(pkg => ({ ecosystem: pkg.ecosystem, name: pkg.name, version: pkg.version, targets: pkg.targets, reason: pkg.unresolved }));
+    requireNotice(inventory || unresolved.length === 0, `Unresolved dependency notices after all 3 target inventories: ${unresolved.map(pkg => `${pkg.name}@${pkg.version}: ${pkg.reason}`).join('; ')}`);
+    const output = JSON.stringify({ schemaVersion: 2, collectionComplete: unresolved.length === 0, targets: TARGETS,
+      review: 'Collected dependency declarations and source texts; not legal clearance. Incomplete inventories MUST NOT be bundled. Review distribution obligations, bundled/native components and build feature coverage before release.',
+      unresolved, packages }, null, 2) + '\n';
     requireNotice(Buffer.byteLength(output) <= LIMIT, 'Artifact size limit exceeded');
     return output;
   } catch (error) {
@@ -233,15 +313,30 @@ async function generateNotices({ root = process.cwd(), metadata, exec = promisif
   }
 }
 
+async function runCli(args, options = {}) {
+  const inventory = args[0] === '--inventory';
+  const bundle = args[0] === '--bundle';
+  requireNotice((inventory && args.length === 2 && !args[1].startsWith('--')) || (args.length === 1 && (bundle || !args[0].startsWith('--'))), 'Usage: node scripts/generate-notices.cjs [--inventory] OUTPUT.json | --bundle (new file only)');
+  const root = await fs.realpath(options.root || process.cwd());
+  const output = await generateNotices({ ...options, root, inventory });
+  const destination = path.resolve(root, bundle ? '.tools/notices/THIRD-PARTY-NOTICES.json' : args[inventory ? 1 : 0]);
+  if (bundle) {
+    let directory = root;
+    for (const part of ['.tools', 'notices']) {
+      directory = path.join(directory, part);
+      try { await fs.mkdir(directory); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      requireNotice((await fs.lstat(directory)).isDirectory() && await fs.realpath(directory) === directory, 'Unsupported linked bundle output directory');
+    }
+  }
+  await fs.writeFile(destination, output, { flag: 'wx' });
+}
+
 if (require.main === module) {
-  (async () => {
-    requireNotice(process.argv.length === 3, 'Usage: node scripts/generate-notices.cjs OUTPUT.json (new file only)');
-    const output = await generateNotices();
-    await fs.writeFile(process.argv[2], output, { flag: 'wx' });
-  })().catch(error => {
+  runCli(process.argv.slice(2)).catch(error => {
     process.stderr.write(`${error instanceof NoticeError ? error.message : 'Cannot write notices artifact; use a new writable output file'}\n`);
     process.exitCode = 1;
   });
 }
 
-module.exports = { generateNotices, TARGETS };
+module.exports = { generateNotices, runCli, TARGETS };
