@@ -38,7 +38,11 @@ jobs:
       - run: npm ci
       - run: npm run check:release
       - run: npm run test:release
+      - run: npm run test:notices
       - run: npm test
+      - name: Repeated cold-start readiness regression
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: node -e "const cp=require('node:child_process');for(let i=0;i<5;i++){console.log('Cold-start repetition',i+1);const r=cp.spawnSync(process.execPath,['node_modules/vitest/vitest.mjs','run','apps/desktop/src/App.test.tsx','-t','shows the backend comparison limitation'],{stdio:'inherit'});if(r.status!==0)process.exit(r.status||1)}"
       - name: Theme text contrast
         if: runner.os == 'Windows'
         run: npm run test:contrast

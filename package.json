@@ -11,6 +11,8 @@
     "build": "tsc --noEmit && vite build",
     "check:release": "node scripts/check-release.cjs",
     "test:release": "node --test scripts/release.test.cjs",
+    "test:notices": "node --test scripts/notices.test.cjs",
+    "notices": "node scripts/generate-notices.cjs",
     "test": "vitest run",
     "desktop": "tauri dev",
     "package": "tauri build",
