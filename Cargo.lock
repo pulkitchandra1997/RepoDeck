@@ -2676,6 +2676,7 @@ dependencies = [
  "serde",
  "tauri",
  "tauri-build",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 
