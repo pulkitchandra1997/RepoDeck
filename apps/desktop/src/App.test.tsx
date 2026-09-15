@@ -83,7 +83,7 @@ describe("Workspace experience", () => {
     await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
     expect(screen.getByText('Submodule working-file changes are shown separately.')).toBeTruthy();
   });
-  it('retains alias drafts across tabs and canonical checkout workspace identities', async () => {
+  async function openAliasDraft() {
     const api = backend();
     api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [
       { id: 'parent', name: 'Parent', rootPath: 'C:\\Projects' },
@@ -96,14 +96,32 @@ describe("Workspace experience", () => {
     await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Edit custom name' }));
     await userEvent.type(screen.getByLabelText('Custom name'), 'Payments');
+  }
+
+  it('retains alias drafts across tabs', async () => {
+    await openAliasDraft();
     await userEvent.click(screen.getByRole('tab', { name: 'Files' }));
     await userEvent.click(screen.getByRole('tab', { name: 'Repositories' }));
     expect((screen.getByLabelText('Custom name') as HTMLInputElement).value).toBe('Payments');
+  });
+
+  it('keeps drafts for unrelated checkouts independent', async () => {
+    await openAliasDraft();
     await userEvent.click(screen.getByRole('button', { name: 'Other' }));
     await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Edit custom name' }));
     expect((screen.getByLabelText('Custom name') as HTMLInputElement).value).toBe('');
     await userEvent.type(screen.getByLabelText('Custom name'), 'Other draft');
+    await userEvent.click(screen.getByRole('button', { name: 'Parent' }));
+    await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
+    expect((screen.getByLabelText('Custom name') as HTMLInputElement).value).toBe('Payments');
+    await userEvent.click(screen.getByRole('button', { name: 'Other' }));
+    await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
+    expect((screen.getByLabelText('Custom name') as HTMLInputElement).value).toBe('Other draft');
+  });
+
+  it('shares alias drafts and saves across canonical checkout workspace identities', async () => {
+    await openAliasDraft();
     await userEvent.click(screen.getByRole('button', { name: 'Checkout' }));
     await userEvent.click(await screen.findByRole('button', { name: /^Checkout.*main/ }));
     expect((screen.getByLabelText('Custom name') as HTMLInputElement).value).toBe('Payments');
