@@ -10,6 +10,9 @@ permissions:
 jobs:
   desktop:
     timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +29,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -54,8 +59,16 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: cargo test --locked -p repodeck-core --test repository filter
       - name: Require completed release readiness review
-        if: startsWith(github.ref, 'refs/tags/v') && vars.REPODECK_RELEASE_APPROVED != 'true'
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-preview.') && vars.REPODECK_RELEASE_APPROVED != 'true'
         run: node -e "console.error('Release blocked pending platform, security and dependency-license review. See docs/releases/release-guide.md.'); process.exit(1)"
+      - name: Block stable distribution until signing is implemented
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-preview.')
+        run: node -e "console.error('Stable release signing and notarization are not implemented. A readiness variable alone cannot authorize unsigned stable distribution.'); process.exit(1)"
+      - name: Validate explicit unsigned preview policy and merged source
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-preview.')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-release.cjs --preview-policy
       - run: npm run test:private-git
       - name: Authenticated HTTPS fixture
         if: runner.os == 'Windows'
@@ -109,24 +122,38 @@ jobs:
       - name: Verify artifact round-trip
         run: node -e "const fs=require('node:fs'); const assert=require('node:assert/strict'); assert.deepEqual(fs.readFileSync('artifact-output/fixture.txt'),fs.readFileSync('artifact-input/fixture.txt'));"
   draft-release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-preview.')
     needs: [desktop, verification]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: preview-release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-*
           path: release-assets
-          merge-multiple: true
-      - name: Verify checksums and create draft prerelease
+          merge-multiple: false
+      - name: Validate exact release set and generate version notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/generate-release-notes.cjs release-assets release-notes.md
+      - name: Create new unsigned draft prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          cd release-assets
-          sha256sum --check *.sha256
-          cd ..
-          gh release create "$RELEASE_TAG" release-assets/* LICENSE --verify-tag --draft --prerelease --title "RepoDeck $RELEASE_TAG (development preview)" --notes-file docs/releases/preview-notes.md
+          gh release create "$RELEASE_TAG" release-assets/release-*/* LICENSE --verify-tag --draft --prerelease --latest=false --title "RepoDeck $RELEASE_TAG (unsigned development preview)" --notes-file release-notes.md
