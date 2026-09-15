@@ -45,3 +45,10 @@ with per-run totals of 6.18, 6.54, 5.41, 5.55 and 6.13 seconds. These totals
 include environment startup; each individual test retained the 5000 ms limit.
 `actionlint.exe -shellcheck= -pyflakes= .github/workflows/verify.yml` and
 `git diff --check` passed. These are local results, not an Intel CI pass.
+
+After merging `origin/main` at `77b5e37` (#39) without conflicts or force-pushing,
+`npm test -- --maxWorkers=1` passed all 131 tests in 11 files (73.03 seconds),
+`npm run test:release` passed all 11 tests, and actionlint plus
+`git diff --check origin/main...HEAD` passed. The upstream workspace-search
+changes did not overlap the release path. Review and new three-target CI are
+still required on the pushed revision.
