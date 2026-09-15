@@ -11,6 +11,8 @@
     "build": "tsc --noEmit && vite build",
     "check:release": "node scripts/check-release.cjs",
     "test:release": "node --test scripts/release.test.cjs",
+    "test:notices": "node --test scripts/notices.test.cjs",
+    "notices": "node scripts/generate-notices.cjs",
     "test": "vitest run",
     "desktop": "tauri dev",
     "package": "tauri build",
@@ -42,6 +44,7 @@
     "jsdom": "^30.0.1",
     "playwright": "^1.55",
     "sharp": "^0.35.4",
+    "semver": "^7.8.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.0"

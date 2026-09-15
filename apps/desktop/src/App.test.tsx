@@ -79,8 +79,12 @@ describe("Workspace experience", () => {
   it('shows the backend comparison limitation for the selected repository', async () => {
     const api = backend();
     api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
-    render(<App backend={api} />);
-    await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
+    let finishScan!: (value: Snapshot) => void;
+    api.scan = () => new Promise(resolve => { finishScan = resolve; });
+    await act(async () => { render(<App backend={api} />); });
+    expect(screen.queryByRole('button', { name: /^api/ })).toBeNull();
+    await act(async () => { finishScan(snapshot); });
+    await userEvent.click(screen.getByRole('button', { name: /^api/ }));
     expect(screen.getByText('Submodule working-file changes are shown separately.')).toBeTruthy();
   });
   async function openAliasDraft() {
