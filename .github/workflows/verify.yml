@@ -43,6 +43,8 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run test:contrast
       - run: cargo test --locked -p repodeck-core
+        env:
+          REPODECK_TEST_WATCH_TRACE: '1'
       - name: Release security gate
         if: startsWith(github.ref, 'refs/tags/v')
         run: cargo test --locked -p repodeck-core --test repository filter
