@@ -117,7 +117,6 @@ pub fn start_with_options(
     let metadata_roots: Vec<_> = metadata.iter().map(|(path, _)| path.clone()).collect();
     let excluded = options.excluded.clone();
     let watched_root = root.clone();
-    let trace = std::env::var_os("REPODECK_TEST_WATCH_TRACE").is_some();
     let config = Config::default()
         .with_timeout(Duration::from_millis(350))
         .with_batch_mode(true)
@@ -126,9 +125,6 @@ pub fn start_with_options(
         config,
         move |result: DebounceEventResult| match result {
             Ok(events) => {
-                if trace {
-                    eprintln!("watch root={watched_root:?} events={events:?}");
-                }
                 let relevant = events.iter().any(|event| {
                     metadata_roots
                         .iter()

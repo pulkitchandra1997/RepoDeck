@@ -43,12 +43,8 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run test:contrast
       - run: cargo test --locked -p repodeck-core
-        env:
-          REPODECK_TEST_WATCH_TRACE: '1'
       - name: Repeated watcher regression
         if: runner.os == 'macOS'
-        env:
-          REPODECK_TEST_WATCH_TRACE: '1'
         run: node -e "const cp=require('node:child_process');for(let i=0;i<15;i++){console.log('Watcher repetition',i+1);const r=cp.spawnSync('cargo',['test','--locked','-p','repodeck-core','--test','watch','--','--nocapture'],{stdio:'inherit'});if(r.status!==0)process.exit(r.status||1)}"
       - name: Release security gate
         if: startsWith(github.ref, 'refs/tags/v')

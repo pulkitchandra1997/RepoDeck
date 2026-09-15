@@ -1,5 +1,9 @@
 use repodeck_core::watch;
-use std::{fs, sync::mpsc, time::Duration};
+use std::{
+    fs,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 #[test]
 fn observes_external_worktree_head_and_shared_refs() {
@@ -114,8 +118,28 @@ fn ignores_excluded_output_but_observes_git_metadata() {
         },
     )
     .unwrap();
+    // FSEvents can deliver root/.git creation from fixture setup after registration.
+    // Establish a live stream, then isolate the excluded write from those events.
+    fs::write(dir.path().join("watch-ready.txt"), "ready").unwrap();
+    assert!(rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("Watcher did not observe readiness write")
+        .error
+        .is_none());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "Watcher did not become quiet");
+        match rx.recv_timeout(Duration::from_millis(1500)) {
+            Ok(notice) => assert!(notice.error.is_none()),
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("Watcher disconnected"),
+        }
+    }
     fs::write(dir.path().join("node_modules/generated.txt"), "ignored").unwrap();
-    assert!(rx.recv_timeout(Duration::from_millis(1500)).is_err());
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_millis(1500)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
     fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/main").unwrap();
     assert!(rx
         .recv_timeout(Duration::from_secs(5))
