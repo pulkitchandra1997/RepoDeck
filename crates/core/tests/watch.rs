@@ -1,5 +1,9 @@
 use repodeck_core::watch;
-use std::{fs, sync::mpsc, time::Duration};
+use std::{
+    fs,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 #[test]
 fn observes_external_worktree_head_and_shared_refs() {
@@ -100,13 +104,16 @@ fn observes_real_file_changes_and_stops_when_dropped() {
     assert!(rx.recv_timeout(Duration::from_millis(800)).is_err());
 }
 
-#[test]
-fn ignores_excluded_output_but_observes_git_metadata() {
+fn quiet_fixture() -> (
+    tempfile::TempDir,
+    watch::WorkspaceWatch,
+    mpsc::Receiver<watch::WatchNotice>,
+) {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("node_modules")).unwrap();
     fs::create_dir(dir.path().join(".git")).unwrap();
     let (tx, rx) = mpsc::channel();
-    let _watcher = watch::start(
+    let watcher = watch::start(
         dir.path(),
         vec!["node_modules".into(), ".git".into()],
         move |notice| {
@@ -114,8 +121,39 @@ fn ignores_excluded_output_but_observes_git_metadata() {
         },
     )
     .unwrap();
+    // FSEvents can deliver root/.git creation from fixture setup after registration.
+    // Establish a live stream, then isolate the excluded write from those events.
+    fs::write(dir.path().join("watch-ready.txt"), "ready").unwrap();
+    assert!(rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("Watcher did not observe readiness write")
+        .error
+        .is_none());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "Watcher did not become quiet");
+        match rx.recv_timeout(Duration::from_millis(1500)) {
+            Ok(notice) => assert!(notice.error.is_none()),
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("Watcher disconnected"),
+        }
+    }
+    (dir, watcher, rx)
+}
+
+#[test]
+fn ignores_excluded_output() {
+    let (dir, _watcher, rx) = quiet_fixture();
     fs::write(dir.path().join("node_modules/generated.txt"), "ignored").unwrap();
-    assert!(rx.recv_timeout(Duration::from_millis(1500)).is_err());
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_secs(5)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+}
+
+#[test]
+fn observes_git_metadata_in_excluded_directory() {
+    let (dir, _watcher, rx) = quiet_fixture();
     fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/main").unwrap();
     assert!(rx
         .recv_timeout(Duration::from_secs(5))
