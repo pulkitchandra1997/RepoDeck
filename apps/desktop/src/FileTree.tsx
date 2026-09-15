@@ -22,6 +22,7 @@ export default function FileTree({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
   const metadataId = useId();
   const [limit, setLimit] = useState(200);
   useEffect(() => setLimit(200), [query]);
@@ -58,9 +59,9 @@ export default function FileTree({
     return { children, totals };
   }, [entries]);
   const visible: { entry: Entry; depth: number }[] = [];
-  if (query.trim()) {
+  if (normalizedQuery) {
     for (const entry of entries)
-      if (entry.path.toLowerCase().includes(query.toLowerCase()))
+      if (entry.path.toLowerCase().includes(normalizedQuery))
         visible.push({ entry, depth: 0 });
     visible.sort((a, b) => a.entry.path.localeCompare(b.entry.path));
   } else {
@@ -133,7 +134,7 @@ export default function FileTree({
               ) : (
                 <FileText size={16} />
               )}
-              {query.trim() ? entry.path : entry.path.split("/").at(-1)}
+              {normalizedQuery ? entry.path : entry.path.split("/").at(-1)}
             </span>
             <small className="file-metadata">
               {statuses?.get(entry.path) && <span className={`file-status ${statuses.get(entry.path)!.tone}`}>{statuses.get(entry.path)!.label}</span>}
