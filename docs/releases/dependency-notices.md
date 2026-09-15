@@ -38,6 +38,10 @@ unsupported declarations, invalid provenance, unreadable inputs and bounds error
 still abort without an artifact. Strict collection rejects any unresolved entry.
 `collectionComplete: true` means the collector found texts and no recorded
 blockers; it is not a semantic license audit or approval to distribute.
+Cargo records separately expose `licenseTextAvailable`: at least one collected
+license text was found. This is a presence indicator, not proof that every
+component/alternative is covered. A record can have available texts and still
+carry an unresolved distribution decision.
 
 ## Future Notice Packaging
 
@@ -109,11 +113,27 @@ Never run installer/uninstaller automation in the normal Windows account.
 - Fallback use requires the exact crate name/version/declaration, crates.io
   registry source, repository, and published `.cargo_vcs_info.json` revision/path.
   Dirty or linked provenance is rejected. No version ranges, latest tags,
-  generic license templates or cross-repository substitutions are permitted.
+  generic license substitutions or unreferenced external terms are permitted.
   Every stored text hash is validated, including entries unused on a target.
   Local notice files are still retained and validated; a fallback never masks
   empty, escaping or unreadable local evidence. Explicit `blocked` records remain
   blocking even if a local file named LICENSE appears.
+- A reviewed `linkedTerms` entry can connect an external pinned license-steward
+  text to a same-revision source declaration that explicitly names its URL.
+  The declaration must be included as evidence, its crate-relative location must
+  match the upstream path, and the installed declaration's exact hash must match.
+  Both the declaration URL and official text URL remain in artifact provenance.
+  This permits the explicit MPL source-header referral, not guessing from SPDX.
+  URLs are evidence only; the collector never downloads them. There are at most
+  32 links per package, with bounded HTTPS URLs and the existing source limits.
+- The [WebView2 SDK supplement](../../scripts/license-fallbacks/webview2-sdk.json)
+  holds exact LICENSE, NOTICE and nuspec text from a versioned Microsoft NuGet
+  archive, its SHA-256, and all nine loader hashes. Collection validates the
+  pinned crate identity, archive URL, text hashes and binary paths, then hashes
+  all nine installed loader files before including `pinned-archive` texts.
+  Supplemental JSON is limited to 256 KiB; each text to 128 KiB; each binary to
+  16 MiB, hashed in 64 KiB chunks. Linked files/directories and changed bytes fail.
+  No archive download, extraction or executable invocation occurs at collection.
 - Fallback bounds: 4 MiB manifest, 128 source records, 256 package records,
   32 distinct source references per package, 2 MiB per source text and 8 MiB
   combined local/upstream text per package. The existing aggregate budget also
@@ -138,15 +158,18 @@ Never run installer/uninstaller automation in the normal Windows account.
 
 ## Pinned Source Review
 
-The fallback manifest records a source-text/provenance inspection by Codex on
-2026-09-15. `text-reviewed` means that inspection only; it does not represent an
-independent human review or legal clearance. Seventeen upstream files at ten
-commits support 22 exact crate records, including explicitly blocked evidence.
+The fallback manifest records source-text/provenance inspections by Codex on
+2026-09-15 and 2026-09-16. `text-reviewed` means that inspection only; it does not
+represent independent human review or legal clearance. Nineteen GitHub source
+files at twelve commits and three Microsoft SDK archive texts support 22 exact
+crate records, including explicitly blocked evidence.
 
 - `webview2-com@0.38.2`, `webview2-com-macros@0.8.1`, and
   `webview2-com-sys@0.38.2`: repository-root MIT text with Bill Avery's copyright.
   Published VCS revisions and workspace manifests bind it to those crates.
-  The sys crate remains blocked because it also contains Microsoft loader binaries.
+  The sys crate now also collects Microsoft's SDK license/NOTICE after verifying
+  every loader hash; distribution review and actual packaged notice delivery
+  remain blocked. The SDK terms do not establish separately deployed Runtime terms.
 - `alloc-stdlib@0.2.4`: Dropbox's repository-root BSD-3-Clause text, matched to
   the `alloc-stdlib/Cargo.toml` declaration at its published revision.
 - Five UNIC 0.9.0 crates: actual repository-root MIT/Apache texts plus
@@ -160,9 +183,12 @@ commits support 22 exact crate records, including explicitly blocked evidence.
   revisions is retained as **evidence**, not full license text. It links to
   license templates and explicitly raises uncertainty about Apple SDK-derived
   redistribution. The records remain blocked.
-- `selectors@0.36.1`: no MPL text exists in the inspected pinned tree. Its README
-  and source declarations do not supply the missing text. No unrelated crate's
-  license or generic MPL text was substituted; its record remains blocked.
+- `selectors@0.36.1`: its pinned `selectors/lib.rs` explicitly refers to
+  `https://mozilla.org/MPL/2.0/`. Mozilla's official plaintext download matched
+  `mozilla/bedrock` commit `a15178c3c7c976c67b3641af77cae0b66093a175`,
+  `media/MPL/2.0/index.txt`, byte for byte. The exact text and declaration are
+  collected, while corresponding-source delivery and notice decisions remain
+  blocked. This is an explicit source referral, not an SPDX-based substitution.
 
 The [manifest](../../scripts/license-fallbacks/manifest.json) provides all exact
 revisions, package paths, source texts and hashes. Inspect the upstream paths at
@@ -171,7 +197,7 @@ do not relabel a blocked record merely to obtain a passing build.
 
 ## Current Evidence And Blockers
 
-On 2026-09-15, Windows, Node.js 24.19.0 and Cargo 1.98.1, locked offline structured
+On 2026-09-16, Windows, Node.js 24.19.0 and Cargo 1.98.1, locked offline structured
 metadata succeeded for all three targets (270 Windows and 264 reachable nodes for
 each macOS target, including two workspace members).
 This is resolution evidence, not native build or installation evidence.
@@ -180,10 +206,10 @@ The real inventory now finishes: 299 distinct package/version records (294 Cargo
 and five npm). Target membership is 268 third-party Cargo packages for Windows,
 262 for each macOS architecture, and five npm packages on every target.
 The inventory is incomplete for distribution: 13 explicit blockers remain.
-For the lockfiles inherited from `30056dd`, the inventory is 2,846,313 bytes with
-SHA-256 `a57c7224117f4d8e81fd7dd55a9fe20273543039c6034ce4a1017984c88d4a89`.
-Two final-input collections matched byte for byte; all individual text hashes
-were recomputed and verified.
+For the lockfiles inherited from `30056dd`, the updated inventory is 2,893,723 bytes
+with SHA-256 `2db8a3cc600a76e2c4e14195c74821b6fa97d282b60be2d0691bccd765638fe1`.
+All individual text hashes were recomputed and verified. The earlier September
+15 artifact is historical evidence, not the current collection.
 
 The reachable Cargo declaration inventory uses `0BSD`, `Apache-2.0`,
 `BSD-3-Clause`, `CC0-1.0`, `MIT`, `MIT-0`, `MPL-2.0`, `Unicode-3.0`,
@@ -192,17 +218,33 @@ use `ISC`. Compound expressions and legacy slash declarations are covered by
 fixtures. The recognized set is not a comprehensive SPDX registry; a future
 standard identifier outside it needs a parser update, not a legal-policy denial.
 
-1. `selectors@0.36.1`: missing actual MPL text and distribution/source-availability
-   review. Pinned [upstream tree](https://github.com/servo/stylo/tree/635e1a19d02960588a00e189bd4bd5bdb150ec3d).
-2. `webview2-com-sys@0.38.2`: Microsoft's WebView2 loader redistribution terms
-   and notices are unverified. The [pinned build script](https://github.com/wravery/webview2-rs/blob/b74dc5e2b394044bea5191052868ce7a106c202c/crates/bindings/build.rs)
-   copies DLL/import/static libraries; the Rust project's MIT text is not proof
-   of their terms.
+1. `selectors@0.36.1`: applicable MPL text is now available. Choose and verify the
+   corresponding-source delivery method and recipient instructions, retaining
+   source notices under [MPL sections 3.1-3.4](https://www.mozilla.org/MPL/2.0/).
+   The [versioned source archive](https://static.crates.io/crates/selectors/selectors-0.36.1.crate)
+   was downloaded without execution; SHA-256
+   `c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c`
+   matches Cargo.lock and the cached crate. A release can prepare that archive
+   plus the collected MPL text, or maintain a verified source-download link, but
+   must actually provide recipient instructions and cover any modifications.
+   No source-delivery method has been published or certified here.
+2. `webview2-com-sys@0.38.2`: SDK text/provenance is now available, with all nine
+   crate loader files byte-matching Microsoft.Web.WebView2 1.0.3650.58. The pinned
+   [update script](https://github.com/wravery/webview2-rs/blob/b74dc5e2b394044bea5191052868ce7a106c202c/crates/update-bindings/src/main.rs)
+   identifies that version. Archive SHA-256:
+   `911a472128c82ac8baa0c486c23342cc9dd6e7dc50d754e676726642ca065c60`.
+   Its nuspec identifies LICENSE.txt; that text and NOTICE.txt are preserved in
+   full. Verify their delivery in actual release artifacts and separately review
+   the chosen [Runtime deployment](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
+   Neither the Rust MIT declaration nor the SDK license certifies the Runtime.
 3. `block2`, `dispatch2`, `objc2`, `objc2-encode`, `objc2-exception-helper`,
    `objc2-foundation`, `objc2-app-kit`, `objc2-core-foundation`,
    `objc2-core-graphics`, `objc2-io-surface`, and `objc2-web-kit`: missing full
    source license texts and unresolved SDK-derived terms described in the
    [pinned upstream evidence](https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md).
+   The referenced [relicensing issue #23](https://github.com/madsmtm/objc2/issues/23)
+   was still open on September 16 with permissions outstanding. No attribution
+   was removed or license alternative selected based on that proposal.
 
 Strict collection and the notice packaging pre-build step deliberately fail.
 No distributable notice artifact is claimed. Issue #17 is **not closed**.
@@ -212,7 +254,7 @@ development exclusion, target filtering and union, declared files, standard
 compound and unsupported/custom identifiers, missing/empty/oversized text,
 installed drift, private-path handling, preserved URLs, deterministic ordering,
 incomplete graphs, subprocess bounds and CLI failure without an artifact.
-The focused run on Windows with Node.js 24.19.0 passed all 25 tests:
+The September 16 focused run on Windows with Node.js 24.19.0 passed all 29 tests:
 `node --test scripts/notices.test.cjs`. This includes unlocked installed shadows,
 incompatible resolutions, UNC paths and early aggregate-budget rejection.
 Fallback regressions additionally cover exact bytes/hashes/provenance, mutable
@@ -221,7 +263,14 @@ directories, explicit ambiguous terms, complete target traversal, and refusal
 to bundle unresolved/stale output. The real upstream corpus is validated offline
 in fixtures. These fixtures do not constitute native installer verification.
 
-Additional Windows checks: `node --test scripts/notices.test.cjs
+The new regressions cover explicit external-license applicability, rejection of
+unbound URLs and changed declaration bytes, and SDK text/hash/path validation
+with same-size and different-size binary drift. `node --test
+scripts/notices.test.cjs scripts/release.test.cjs` passed all 32 tests. The real
+`--inventory` collection succeeded with the texts above; real `--bundle` still
+exited 1 for all 13 recorded decisions and created no bundle notice artifact.
+
+Earlier September 15 Windows checks: `node --test scripts/notices.test.cjs
 scripts/release.test.cjs` (28 passed), `npm test` (118 passed), `npm run build`,
 `node scripts/check-release.cjs`, and `git diff --check` passed. The Tauri command
 above was exercised through its CLI: it reached `beforeBuildCommand`, rejected

@@ -368,6 +368,19 @@ test('checked-in upstream evidence validates offline and retains every explicit 
   for (const entry of manifest.packages) {
     const directory = `upstream/${entry.name}`;
     await f.write(`${directory}/.cargo_vcs_info.json`, { git: { sha1: entry.revision }, ...(entry.pathInVcs === null ? {} : { path_in_vcs: entry.pathInVcs }) });
+    for (const link of entry.linkedTerms || []) {
+      await f.write(`${directory}/${link.packageFile}`, manifest.sources[link.declaration].text);
+    }
+    if (entry.supplement) {
+      const sdk = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks', entry.supplement)));
+      for (const file of sdk.matchedFiles) {
+        const bytes = `Fixture bytes for ${file.crateFile}`;
+        await f.write(`${directory}/${file.crateFile}`, bytes);
+        file.bytes = Buffer.byteLength(bytes);
+        file.sha256 = createHash('sha256').update(bytes).digest('hex');
+      }
+      await f.write(`scripts/license-fallbacks/${entry.supplement}`, sdk);
+    }
     packages.push({ id: entry.name, name: entry.name, version: entry.version, license: entry.license,
       repository: entry.repository, source: 'registry+https://github.com/rust-lang/crates.io-index', manifest_path: path.join(f.root, directory, 'Cargo.toml') });
     nodes.push({ id: entry.name, deps: [] });
@@ -395,4 +408,115 @@ test('fallback URL newlines and UTF-8 BOM are preserved; private paths remain re
   f.source.sha256 = createHash('sha256').update(f.source.text).digest('hex');
   await f.saveFallback();
   await assert.rejects(f.run(), /private path/);
+});
+
+async function linkedTermsFixture(t) {
+  const f = await fallbackFixture(t);
+  const url = 'https://license.example.test/terms/2.0/';
+  const declaration = { ...f.source, file: 'crate/lib.rs', role: 'evidence', text: `Fixture source explicitly refers to ${url}\n` };
+  declaration.sha256 = createHash('sha256').update(declaration.text).digest('hex');
+  f.source.repository = 'https://github.com/fixture/license-steward';
+  f.source.revision = 'c'.repeat(40);
+  f.manifest.sources.push(declaration);
+  f.entry.sources.push(1);
+  f.entry.status = 'blocked';
+  f.entry.reason = 'Actual license text available; distribution/source delivery decision pending.';
+  f.entry.linkedTerms = [{ source: 0, declaration: 1, packageFile: 'lib.rs', url, textUrl: 'https://license.example.test/terms/2.0/index.txt' }];
+  await f.write('crate/lib.rs', declaration.text);
+  await f.saveFallback();
+  return f;
+}
+
+test('explicit pinned source reference makes external terms available without clearing distribution review', async t => {
+  const f = await linkedTermsFixture(t);
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  const pkg = doc.packages.find(pkg => pkg.name === f.entry.name);
+  assert.equal(pkg.licenseTextAvailable, true);
+  assert.equal(doc.collectionComplete, false);
+  assert.match(pkg.unresolved, /delivery decision/);
+  const text = pkg.texts.find(text => text.provenance.repository === f.source.repository);
+  assert.equal(text.sha256, f.source.sha256);
+  assert.equal(text.provenance.applicability.url, f.entry.linkedTerms[0].url);
+  assert.equal(text.provenance.applicability.declarationSha256, f.manifest.sources[1].sha256);
+  await assert.rejects(f.run(), /unresolved/i);
+});
+
+test('external terms require a bound same-package declaration and an explicit URL', async t => {
+  const f = await linkedTermsFixture(t);
+  const link = f.entry.linkedTerms[0];
+  for (const [field, value] of [['source', 99], ['declaration', 0], ['packageFile', '../lib.rs'],
+    ['packageFile', 'other.rs'], ['url', 'https://unmentioned.example.test/'],
+    ['url', 'https://license.example.test/'], ['textUrl', 'file:///private/terms']]) {
+    const previous = link[field];
+    link[field] = value;
+    await f.saveFallback();
+    await assert.rejects(f.run({ inventory: true }), /linked terms|fallback/i);
+    link[field] = previous;
+  }
+  f.entry.linkedTerms = [];
+  await f.saveFallback();
+  await assert.rejects(f.run({ inventory: true }), /does not match package provenance/);
+});
+
+test('changed or linked installed declaration cannot justify external license text', async t => {
+  const f = await linkedTermsFixture(t);
+  await f.write('crate/lib.rs', 'Fixture source no longer contains the declaration');
+  await assert.rejects(f.run({ inventory: true }), /declaration.*hash/i);
+  await fs.rm(path.join(f.root, 'crate/lib.rs'));
+  await fs.mkdir(path.join(f.root, 'crate/lib.rs'));
+  await assert.rejects(f.run({ inventory: true }), /declaration.*regular/i);
+});
+
+test('SDK supplemental texts require matching crate binaries and remain blocked for distribution', async t => {
+  const f = await fallbackFixture(t);
+  const sdk = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/webview2-sdk.json')));
+  assert.equal(sdk.matchedFiles.length, 9);
+  for (const text of sdk.texts) assert.equal(createHash('sha256').update(text.text).digest('hex'), text.sha256);
+  sdk.crate = { name: f.entry.name, version: f.entry.version, repository: f.entry.repository, revision: f.entry.revision, pathInVcs: f.entry.pathInVcs };
+  sdk.sdk.updateSource = `${f.entry.repository}/blob/${f.entry.revision}/update.rs`;
+  for (const file of sdk.matchedFiles) {
+    const bytes = `Fixture ${file.crateFile}`;
+    await f.write(`crate/${file.crateFile}`, bytes);
+    file.bytes = Buffer.byteLength(bytes);
+    file.sha256 = createHash('sha256').update(bytes).digest('hex');
+  }
+  f.entry.supplement = 'sdk.json';
+  f.entry.status = 'blocked';
+  await f.saveFallback();
+  const saveSdk = () => f.write('scripts/license-fallbacks/sdk.json', sdk);
+  await saveSdk();
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  const texts = doc.packages.find(pkg => pkg.name === f.entry.name).texts.filter(text => text.provenance.kind === 'pinned-archive');
+  assert.equal(texts.length, 3);
+  assert.equal(texts[0].provenance.archiveSha256, sdk.archiveSha256);
+  assert.equal(texts[0].provenance.matchedFiles.length, 9);
+  assert.equal(doc.collectionComplete, false);
+  await assert.rejects(f.run(), /unresolved/i);
+  for (const [object, key, value] of [[sdk.crate, 'version', '99.0.0'],
+    [sdk.matchedFiles[0], 'bytes', 16 * 1024 * 1024 + 1],
+    [sdk, 'matchedFiles', sdk.matchedFiles.slice(1)], [sdk, 'status', 'approved']]) {
+    const previous = object[key];
+    object[key] = value;
+    await saveSdk();
+    await assert.rejects(f.run({ inventory: true }), /SDK/i);
+    object[key] = previous;
+  }
+  await saveSdk();
+  await f.write(`crate/${sdk.matchedFiles[0].crateFile}`, 'x'.repeat(sdk.matchedFiles[0].bytes));
+  await assert.rejects(f.run({ inventory: true }), /SDK.*hash/i);
+  await f.write(`crate/${sdk.matchedFiles[0].crateFile}`, 'x'.repeat(sdk.matchedFiles[0].bytes + 1));
+  await assert.rejects(f.run({ inventory: true }), /SDK.*size/i);
+  const archiveUrl = sdk.archiveUrl;
+  sdk.archiveUrl = 'https://unrelated.example.test/sdk.nupkg';
+  await saveSdk();
+  await assert.rejects(f.run({ inventory: true }), /SDK archive/i);
+  sdk.archiveUrl = archiveUrl;
+  const crateFile = sdk.matchedFiles[0].crateFile;
+  sdk.matchedFiles[0].crateFile = '../outside.dll';
+  await saveSdk();
+  await assert.rejects(f.run({ inventory: true }), /SDK binary path/i);
+  sdk.matchedFiles[0].crateFile = crateFile;
+  sdk.texts[0].text += 'tampered';
+  await saveSdk();
+  await assert.rejects(f.run({ inventory: true }), /SDK text hash/i);
 });

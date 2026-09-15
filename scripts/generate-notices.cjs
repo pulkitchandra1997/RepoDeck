@@ -13,6 +13,19 @@ const sorted = values => [...values].sort();
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const isLicenseFile = file => /^(licen[cs]e|copying)(?:$|[._-])/i.test(path.posix.basename(file));
 const safeRelative = file => typeof file === 'string' && file.length <= 512 && file.split('/').every(part => /^[a-zA-Z0-9_.-]+$/.test(part) && part !== '.' && part !== '..');
+const sourceUrl = source => `${source.repository.replace(/\/$/, '')}/blob/${source.revision}/${source.file}`;
+function httpsUrl(value) {
+  if (typeof value !== 'string' || value.length > 1024) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password && !url.hash && url.href === value;
+  } catch { return false; }
+}
+function referencesUrl(text, url) {
+  const index = text.indexOf(url);
+  // A hostname/path prefix alone is not the URL named in the source notice.
+  return index >= 0 && /^(?:$|[\s<>"')\],;]|\.(?:\s|$))/.test(text.slice(index + url.length));
+}
 function checkPrivate(value, privateRoots, label) {
   const combined = value.replaceAll('\\', '/').toLowerCase();
   requireNotice(!privateRoots.some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/|(?<![:/])\/\/[^/\s]+\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
@@ -35,6 +48,54 @@ async function read(file, limit = LIMIT) {
   } finally { await handle.close(); }
 }
 async function json(file) { return JSON.parse(await read(file)); }
+
+async function sdkSupplement(root, entry, budget, privateRoots) {
+  requireNotice(safeRelative(entry.supplement), 'Invalid SDK supplement location');
+  const file = path.join(root, 'scripts/license-fallbacks', entry.supplement);
+  requireNotice((await fs.lstat(file)).isFile() && await fs.realpath(file) === file, 'SDK supplement must be a regular unlinked file');
+  const sdk = JSON.parse(await read(file, 256 * 1024));
+  const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  requireNotice(sdk.schemaVersion === 1 && sdk.status === 'evidence-only' && ['name', 'version', 'repository', 'revision', 'pathInVcs'].every(key => sdk.crate?.[key] === entry[key]), 'SDK supplement crate provenance mismatch');
+  requireNotice(sdk.sdk?.name === 'Microsoft.Web.WebView2' && /^\d+\.\d+\.\d+\.\d+$/.test(sdk.sdk.version), 'Unsupported SDK package');
+  const archiveUrl = `https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${sdk.sdk.version}/microsoft.web.webview2.${sdk.sdk.version}.nupkg`;
+  requireNotice(sdk.archiveUrl === archiveUrl && hash(sdk.archiveSha256), 'Invalid SDK archive provenance');
+  const updatePrefix = `${entry.repository}/blob/${entry.revision}/`;
+  requireNotice(typeof sdk.sdk.updateSource === 'string' && sdk.sdk.updateSource.startsWith(updatePrefix) && safeRelative(sdk.sdk.updateSource.slice(updatePrefix.length)), 'Invalid SDK update source provenance');
+  const names = ['LICENSE.txt', 'NOTICE.txt', 'Microsoft.Web.WebView2.nuspec'];
+  requireNotice(Array.isArray(sdk.texts) && sdk.texts.length === 3 && new Set(sdk.texts.map(text => text.file)).size === 3, 'Invalid SDK text inventory');
+  for (const text of sdk.texts) {
+    requireNotice(names.includes(text.file) && typeof text.text === 'string' && text.text.trim() && Buffer.byteLength(text.text) <= 128 * 1024 && hash(text.sha256) && sha256(text.text) === text.sha256, 'SDK text hash or size mismatch');
+    checkPrivate(text.text, privateRoots, 'SDK');
+  }
+  requireNotice(Array.isArray(sdk.matchedFiles) && sdk.matchedFiles.length === 9 && new Set(sdk.matchedFiles.map(file => file.crateFile)).size === 9, 'Invalid SDK binary inventory');
+  for (const file of sdk.matchedFiles) {
+    requireNotice(typeof file.crateFile === 'string' && /^(arm64|x64|x86)\/WebView2Loader(?:\.dll(?:\.lib)?|Static\.lib)$/.test(file.crateFile) && file.archiveFile === `build/native/${file.crateFile}` && hash(file.sha256) && Number.isInteger(file.bytes) && file.bytes > 0 && file.bytes <= 16 * 1024 * 1024, 'Invalid SDK binary path, hash or size');
+  }
+  reserve(budget, sdk);
+  return { archiveUrl: sdk.archiveUrl, archiveSha256: sdk.archiveSha256,
+    sdk: { name: sdk.sdk.name, version: sdk.sdk.version, updateSource: sdk.sdk.updateSource },
+    texts: sdk.texts.map(({ file, text, sha256 }) => ({ file, text, sha256 })),
+    matchedFiles: sdk.matchedFiles.map(({ archiveFile, crateFile, bytes, sha256 }) => ({ archiveFile, crateFile, bytes, sha256 })) };
+}
+
+async function verifySdkBinary(directory, expected) {
+  const file = path.join(await fs.realpath(directory), expected.crateFile);
+  requireNotice((await fs.lstat(file)).isFile() && await fs.realpath(file) === file, 'SDK binary must be a regular unlinked package file');
+  const handle = await fs.open(file, 'r');
+  try {
+    requireNotice((await handle.stat()).size === expected.bytes, 'SDK binary size mismatch');
+    const hash = createHash('sha256'), buffer = Buffer.alloc(64 * 1024);
+    let total = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      total += bytesRead;
+      requireNotice(total <= expected.bytes, 'SDK binary size limit exceeded');
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    requireNotice(total === expected.bytes && hash.digest('hex') === expected.sha256, 'SDK binary hash mismatch');
+  } finally { await handle.close(); }
+}
 
 function identity(name, version) {
   requireNotice(typeof name === 'string' && name.length <= 256 && /^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(name), 'Unsupported package name');
@@ -140,12 +201,30 @@ async function loadFallbacks(root, budget, privateRoots) {
     licenseIdentifier(entry.license, 'Fallback');
     requireNotice(['text-reviewed', 'blocked'].includes(entry.status) && typeof entry.reason === 'string' && entry.reason.trim() && entry.reason.length <= 2048, 'Invalid fallback review status or reason');
     requireNotice(Array.isArray(entry.sources) && entry.sources.length <= 32 && new Set(entry.sources).size === entry.sources.length && entry.sources.every(index => Number.isInteger(index) && manifest.sources[index]), 'Invalid fallback source references');
-    const sources = entry.sources.map(index => manifest.sources[index]);
-    requireNotice(sources.every(source => source.repository === entry.repository && source.revision === entry.revision), 'Fallback source does not match package provenance');
+    const samePackage = source => source.repository === entry.repository && source.revision === entry.revision;
+    const linkedTerms = entry.linkedTerms ?? [];
+    requireNotice(Array.isArray(linkedTerms) && linkedTerms.length <= 32, 'Invalid linked terms limit');
+    const links = new Map();
+    for (const link of linkedTerms) {
+      requireNotice(Number.isInteger(link.source) && Number.isInteger(link.declaration) && entry.sources.includes(link.source) && entry.sources.includes(link.declaration) && !links.has(link.source), 'Invalid or duplicate linked terms reference');
+      const source = manifest.sources[link.source], declaration = manifest.sources[link.declaration];
+      requireNotice(source.role === 'license' && !samePackage(source) && samePackage(declaration) && declaration.role === 'evidence', 'Linked terms require same-package declaration evidence');
+      requireNotice(safeRelative(link.packageFile) && typeof entry.pathInVcs === 'string' && declaration.file === (entry.pathInVcs ? `${entry.pathInVcs}/` : '') + link.packageFile, 'Invalid linked terms package path');
+      requireNotice(httpsUrl(link.url) && httpsUrl(link.textUrl) && referencesUrl(declaration.text, link.url), 'Linked terms URL is not present in declaration evidence');
+      checkPrivate(`${link.url}\n${link.textUrl}`, privateRoots, 'Linked terms');
+      links.set(link.source, { ...link, declaration });
+    }
+    const sources = entry.sources.map(index => {
+      const source = manifest.sources[index], link = links.get(index);
+      requireNotice(samePackage(source) || link, 'Fallback source does not match package provenance');
+      return { ...source, applicability: link ? { url: link.url, textUrl: link.textUrl, packageFile: link.packageFile,
+        declarationUrl: sourceUrl(link.declaration), declarationSha256: link.declaration.sha256 } : undefined };
+    });
     requireNotice(entry.status === 'blocked' || sources.some(source => source.role === 'license'), 'Fallback requires reviewed license text');
     requireNotice(sources.reduce((sum, source) => sum + Buffer.byteLength(source.text), 0) <= 8 * 1024 * 1024, 'Fallback package text limit exceeded');
     checkPrivate(entry.reason, privateRoots, 'Fallback');
-    result.set(key, { ...entry, sources });
+    const supplement = entry.supplement === undefined ? undefined : await sdkSupplement(root, entry, budget, privateRoots);
+    result.set(key, { ...entry, sources, linkedTerms: [...links.values()], supplement });
   }
   reserve(budget, manifest);
   return result;
@@ -162,12 +241,28 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
     requireNotice((await fs.lstat(vcsFile)).isFile() && await fs.realpath(vcsFile) === vcsFile, `${label}: linked fallback provenance is unsupported`);
     const vcs = JSON.parse(await read(vcsFile, 16384));
     requireNotice(vcs.git?.sha1 === fallback.revision && vcs.git?.dirty !== true && (vcs.path_in_vcs ?? null) === fallback.pathInVcs, `${label}: fallback revision or crate path mismatch`);
+    for (const link of fallback.linkedTerms) {
+      const file = path.join(await fs.realpath(directory), link.packageFile);
+      requireNotice((await fs.lstat(file)).isFile() && await fs.realpath(file) === file, `${label}: declaration must be a regular unlinked package file`);
+      requireNotice(sha256(await read(file, 2 * 1024 * 1024)) === link.declaration.sha256, `${label}: declaration hash differs from pinned evidence`);
+    }
     for (const source of fallback.sources) {
       const evidence = { file: source.file, text: source.text, sha256: source.sha256,
         provenance: { kind: 'pinned-upstream', repository: source.repository, revision: source.revision,
-          url: `${source.repository.replace(/\/$/, '')}/blob/${source.revision}/${source.file}`, role: source.role } };
+          url: sourceUrl(source), role: source.role, ...(source.applicability ? { applicability: source.applicability } : {}) } };
       reserve(budget, evidence);
       local.push(evidence);
+    }
+    if (fallback.supplement) {
+      const sdk = fallback.supplement;
+      for (const file of sdk.matchedFiles) await verifySdkBinary(directory, file);
+      for (const text of sdk.texts) {
+        const evidence = { ...text, provenance: { kind: 'pinned-archive', url: sdk.archiveUrl,
+          archiveSha256: sdk.archiveSha256, sdk: sdk.sdk, matchedFiles: sdk.matchedFiles,
+          role: text.file === 'LICENSE.txt' ? 'license' : text.file === 'NOTICE.txt' ? 'notice' : 'evidence' } };
+        reserve(budget, evidence);
+        local.push(evidence);
+      }
     }
     if (fallback.status === 'blocked') reason = fallback.reason;
   }
@@ -175,7 +270,7 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
     ? isLicenseFile(item.file) || item.file === pkg.license_file : item.provenance.role === 'license');
   if (!hasLicense && !reason) reason = 'Missing license text; no reviewed pinned upstream fallback';
   requireNotice(local.reduce((sum, item) => sum + Buffer.byteLength(item.text), 0) <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
-  return { texts: local, ...(reason ? { unresolved: reason } : {}) };
+  return { texts: local, licenseTextAvailable: hasLicense, ...(reason ? { unresolved: reason } : {}) };
 }
 
 async function npmPackages(root, budget, privateRoots) {
