@@ -7,7 +7,9 @@ const { checkRelease } = require('./check-release.cjs');
 
 async function stageRelease(root, destination, version, target, commit) {
   const name = assetName(version, target);
-  assert.match(commit, /^[0-9a-f]{40}$/i, 'A full source commit SHA is required');
+  assert.match(commit, /^[0-9a-f]{40}$/, 'A full source commit SHA is required');
+  const rootInfo = await fs.lstat(root);
+  assert.ok(rootInfo.isDirectory() && !rootInfo.isSymbolicLink(), 'Bundle root must be a real directory');
   const extension = path.extname(name);
   const candidates = [];
   async function visit(directory) {
@@ -15,12 +17,14 @@ async function stageRelease(root, destination, version, target, commit) {
       const file = path.join(directory, entry.name);
       assert.ok(!entry.isSymbolicLink(), 'Bundle tree must not contain symbolic links');
       if (entry.isDirectory()) await visit(file);
-      else if (path.extname(entry.name) === extension) candidates.push(file);
+      else if (entry.isFile() && path.extname(entry.name) === extension) candidates.push(file);
     }
   }
   // Scan only the installer directory, not macOS .app symlink trees.
   await visit(root);
   assert.equal(candidates.length, 1, 'Expected exactly one installer');
+  const size = (await fs.stat(candidates[0])).size;
+  assert.ok(size > 0 && size < 2 ** 31, 'Installer must not be empty or exceed the release size limit');
   const bytes = await fs.readFile(candidates[0]);
   assert.ok(bytes.length > 0, 'Installer must not be empty');
   const sha256 = createHash('sha256').update(bytes).digest('hex');
