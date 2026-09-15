@@ -34,7 +34,7 @@ work, access private data, change security settings, or publish releases.
 
 ## Verification
 
-Use Node.js 22.12+ (CI uses 24), Rust stable and Git supporting
+Use Node.js 22.22.2+, 24.15.0+, or 26+ (CI uses 24; Node 23/25 are unsupported), Rust stable and Git supporting
 `git --no-lazy-fetch --version`. See DEVELOPMENT.md for platform build prerequisites.
 From the repository root, the baseline checks are:
 

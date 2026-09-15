@@ -11,7 +11,7 @@ See [the AI contribution policy](docs/agents/ai-contribution-policy.md) for disc
 and review expectations. Agents start with [AGENTS.md](AGENTS.md); contributors
 start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Install Node.js 22.12+ and Rust stable. Windows development requires the Visual Studio C++ build tools and WebView2. macOS requires Xcode command-line tools. Install Git with the HTTPS/SSH support and credential helpers you use for your repositories.
+Install Node.js 22.22.2+, 24.15.0+, or 26+ and Rust stable. Node 23/25 are unsupported by the test dependencies; CI uses Node 24. Windows development requires the Visual Studio C++ build tools and WebView2. macOS requires Xcode command-line tools. Install Git with the HTTPS/SSH support and credential helpers you use for your repositories.
 
 Git must accept `git --no-lazy-fetch --version`. RepoDeck requires this capability for offline inspection and refuses older Git builds that lack it. Upgrade Git instead of bypassing the check. The Windows installer and macOS/Windows runtime checks use the same capability probe.
 
