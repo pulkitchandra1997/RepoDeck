@@ -34,7 +34,9 @@ that distributable notices were generated.
 
 - npm: traverse dependencies, optional dependencies and peers from the lockfile
   root, resolving installed nested/hoisted packages from package-lock v3. Check
-  installed name/version/dependency declarations against the lock. Unreachable
+  installed name/version/dependency declarations against the lock, reject
+  unlocked installed shadows and validate resolved semver constraints. Non-semver
+  dependency specifications require review and fail closed. Unreachable
   development packages are excluded. Missing optional/peer packages also fail:
   this collector cannot infer their absence is safe for all release platforms.
   Workspaces, links, bundled dependencies and platform-constrained npm packages
@@ -53,7 +55,8 @@ that distributable notices were generated.
   separately. Target membership describes metadata traversal, not proven binary
   inclusion. Release builds with different feature flags need aligned collection
   before relying on the result. See [Cargo metadata documentation](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html).
-- No installs, fetches, build scripts, shell commands or new dependencies. Cargo
+- Collection performs no installs, fetches, build scripts or shell commands. The
+  development tooling uses the locked `semver` library for npm constraints. Cargo
   calls use `execFile` argument arrays, a 120-second timeout per target and a
   32 MiB output bound. Offline caches must already contain needed dependencies.
 - Collect root `LICENSE`, `LICENCE`, `COPYING`, `NOTICE`, `COPYRIGHT` files and
@@ -64,7 +67,9 @@ that distributable notices were generated.
 - Bounds: 20,000 npm lock entries, 10,000 Cargo packages/nodes per target,
   100,000 queued edges per graph, 2,048 scanned directory entries per package,
   five nested notice directories, 2 MiB per text, 8 MiB per package and 32 MiB
-  for the final artifact. Invalid UTF-8, empty files and escaping paths fail.
+  for the final artifact. A separate 32 MiB collection budget counts escaped
+  text and record overhead before retaining each item, conservatively including
+  duplicate evidence across targets. Invalid UTF-8, empty files and escaping paths fail.
 - License syntax recognizes the identifiers observed in the current locked
   closure, with parentheses, `AND`, `OR`, `WITH LLVM-exception` and Cargo's
   legacy slash separators (see `licenseIdentifier` in the generator). All
@@ -73,7 +78,7 @@ that distributable notices were generated.
   custom licenses and `SEE LICENSE IN` require review and fail closed. License
   files are copied, never synthesized from identifiers.
 - Filesystem errors and Cargo stderr are not printed. Source text containing
-  the checkout/package path or recognizable Windows/home-directory paths is
+  the checkout/package path or recognizable Windows/UNC/home-directory paths is
   rejected rather than silently altering license terms. This is not a general
   secret scanner; review the output before distributing it.
 
@@ -102,9 +107,10 @@ development exclusion, target filtering and union, declared files, standard
 compound and unsupported/custom identifiers, missing/empty/oversized text,
 installed drift, private-path handling, preserved URLs, deterministic ordering,
 incomplete graphs, subprocess bounds and CLI failure without an artifact.
-The final focused run on Windows with Node.js 24.19.0 passed all 13 tests:
-`node --test scripts/notices.test.cjs`. App/build/native/installer checks were
-not run for this scoped tooling change. No package installs were performed.
+The focused run on Windows with Node.js 24.19.0 passed all 15 tests:
+`node --test scripts/notices.test.cjs`. This includes unlocked installed shadows,
+incompatible resolutions, UNC paths and early aggregate-budget rejection.
+These fixtures do not constitute native installer verification.
 
 Legal/distribution review, Tauri resource integration and real release artifact
 verification remain pending. This tooling alone does not close the release gate.

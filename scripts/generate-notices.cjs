@@ -2,12 +2,18 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify, TextDecoder } = require('node:util');
+const semver = require('semver');
 
 const TARGETS = Object.freeze(['x86_64-pc-windows-msvc', 'aarch64-apple-darwin', 'x86_64-apple-darwin']);
 const LIMIT = 32 * 1024 * 1024;
 class NoticeError extends Error {}
 function requireNotice(ok, message) { if (!ok) throw new NoticeError(message); }
 const sorted = values => [...values].sort();
+function reserve(budget, value) {
+  // Count escaped text before retaining it; repeated target evidence counts too.
+  budget.bytes += Buffer.byteLength(JSON.stringify(value)) + 1024;
+  requireNotice(budget.bytes <= LIMIT, 'Aggregate notice collection limit exceeded');
+}
 
 async function read(file, limit = LIMIT) {
   const handle = await fs.open(file, 'r');
@@ -23,8 +29,8 @@ async function read(file, limit = LIMIT) {
 async function json(file) { return JSON.parse(await read(file)); }
 
 function identity(name, version) {
-  requireNotice(typeof name === 'string' && /^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(name), 'Unsupported package name');
-  requireNotice(typeof version === 'string' && /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.+-]+)?$/.test(version), 'Unsupported package version');
+  requireNotice(typeof name === 'string' && name.length <= 256 && /^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(name), 'Unsupported package name');
+  requireNotice(typeof version === 'string' && version.length <= 256 && /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.+-]+)?$/.test(version), 'Unsupported package version');
   return `${name}@${version}`;
 }
 
@@ -57,7 +63,7 @@ function licenseIdentifier(value, label) {
   return value;
 }
 
-async function texts(directory, declaredFile, label, privateRoots) {
+async function texts(directory, declaredFile, label, privateRoots, budget) {
   const base = await fs.realpath(directory);
   const files = new Set();
   let visited = 0;
@@ -91,13 +97,14 @@ async function texts(directory, declaredFile, label, privateRoots) {
     total += Buffer.byteLength(text);
     requireNotice(total <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
     const combined = `${file}\n${text}`.replaceAll('\\', '/').toLowerCase();
-    requireNotice(!privateRoots.concat(base).some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
+    requireNotice(!privateRoots.concat(base).some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/|(?:^|[\s"'(<])\/\/[^/\s]+\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
+    reserve(budget, { file, text });
     result.push({ file, text });
   }
   return result;
 }
 
-async function npmPackages(root) {
+async function npmPackages(root, budget, privateRoots) {
   const lock = await json(path.join(root, 'package-lock.json'));
   requireNotice(lock.lockfileVersion === 3 && lock.packages?.[''], 'Requires package-lock v3 packages');
   requireNotice(Object.keys(lock.packages).length <= 20000, 'npm package limit exceeded');
@@ -127,7 +134,8 @@ async function npmPackages(root) {
       requireNotice(!pkg.license || pkg.license === license, `${label}: license identifier differs from lockfile`);
       const actual = await fs.realpath(directory);
       requireNotice(actual === path.resolve(directory), `${label}: linked installed package is unsupported`);
-      result.push({ ecosystem: 'npm', name, version: pkg.version, license, targets: sorted(TARGETS), texts: await texts(directory, null, label, [root]) });
+      reserve(budget, { name, version: pkg.version, license, targets: TARGETS });
+      result.push({ ecosystem: 'npm', name, version: pkg.version, license, targets: sorted(TARGETS), texts: await texts(directory, null, label, privateRoots, budget) });
     }
     const deps = { ...pkg.dependencies, ...pkg.peerDependencies, ...pkg.optionalDependencies };
     for (const name of sorted(Object.keys(deps))) {
@@ -136,12 +144,17 @@ async function npmPackages(root) {
       while (true) {
         const candidate = parent ? `${parent}/node_modules/${name}` : `node_modules/${name}`;
         if (Object.hasOwn(lock.packages, candidate)) { found = candidate; break; }
+        let exists = false;
+        try { await fs.lstat(path.join(root, candidate)); exists = true; }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        requireNotice(!exists, `npm ${name}: installed shadow is missing from lockfile`);
         if (!parent) break;
         const boundary = parent.lastIndexOf('/node_modules/');
         parent = boundary < 0 ? '' : parent.slice(0, boundary);
       }
       // Optional edges are also required: no silently incomplete cross-target artifact.
       requireNotice(found, `npm ${name}: unresolved dependency (including optional/peer)`);
+      requireNotice(typeof deps[name] === 'string' && semver.validRange(deps[name]) && semver.satisfies(lock.packages[found].version, deps[name]), `npm ${name}: unsupported range or incompatible version constraint`);
       queue.push(found);
       requireNotice(queue.length <= 100000, 'npm edge limit exceeded');
     }
@@ -149,7 +162,7 @@ async function npmPackages(root) {
   return result;
 }
 
-async function cargoPackages(root, target, metadata) {
+async function cargoPackages(root, target, metadata, budget, privateRoots) {
   requireNotice(metadata?.version === 1 && Array.isArray(metadata.packages) && Array.isArray(metadata.resolve?.nodes) && Array.isArray(metadata.workspace_members), 'Invalid or incomplete Cargo metadata');
   requireNotice(metadata.packages.length <= 10000 && metadata.resolve.nodes.length <= 10000, 'Cargo package limit exceeded');
   const packages = new Map(metadata.packages.map(pkg => [pkg.id, pkg]));
@@ -168,7 +181,8 @@ async function cargoPackages(root, target, metadata) {
       const label = `cargo ${identity(pkg.name, pkg.version)}`;
       const license = licenseIdentifier(pkg.license, label);
       requireNotice(typeof pkg.manifest_path === 'string' && path.isAbsolute(pkg.manifest_path), `${label}: invalid manifest location`);
-      result.push({ ecosystem: 'cargo', name: pkg.name, version: pkg.version, license, targets: [target], texts: await texts(path.dirname(pkg.manifest_path), pkg.license_file, label, [root]) });
+      reserve(budget, { name: pkg.name, version: pkg.version, license, targets: [target] });
+      result.push({ ecosystem: 'cargo', name: pkg.name, version: pkg.version, license, targets: [target], texts: await texts(path.dirname(pkg.manifest_path), pkg.license_file, label, privateRoots, budget) });
     }
     for (const dep of node.deps) {
       requireNotice(Array.isArray(dep.dep_kinds) && dep.dep_kinds.length > 0 && dep.dep_kinds.every(kind => [null, 'build', 'dev'].includes(kind.kind)), 'Unsupported Cargo metadata dependency kind');
@@ -181,8 +195,11 @@ async function cargoPackages(root, target, metadata) {
 
 async function generateNotices({ root = process.cwd(), metadata, exec = promisify(execFile) } = {}) {
   try {
+    const requestedRoot = path.resolve(root);
     root = await fs.realpath(root);
-    const records = await npmPackages(root);
+    const privateRoots = [requestedRoot, root];
+    const budget = { bytes: 1024 };
+    const records = await npmPackages(root, budget, privateRoots);
     for (const target of TARGETS) {
       let data;
       if (metadata) data = await metadata(target);
@@ -192,7 +209,7 @@ async function generateNotices({ root = process.cwd(), metadata, exec = promisif
           data = JSON.parse(stdout);
         } catch { throw new NoticeError(`Cargo metadata failed for ${target}; check locked offline cache/toolchain locally`); }
       }
-      records.push(...await cargoPackages(root, target, data));
+      records.push(...await cargoPackages(root, target, data, budget, privateRoots));
     }
     const merged = new Map();
     for (const record of records) {

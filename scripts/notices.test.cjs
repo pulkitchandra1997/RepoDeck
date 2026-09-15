@@ -133,12 +133,35 @@ test('missing installed production dependency and version drift fail', async t =
 
 test('nested dependency resolution and installed peers are included', async t => {
   const f = await fixture(t);
+  await f.npm('@fixture/ui', { dependencies: { shared: '2.0.0' } });
   await f.npm('shared', { version: '2.0.0', peerDependencies: { peer: '*' } }, 'node_modules/@fixture/ui/node_modules/shared');
   await f.npm('peer');
   await f.save();
   const packages = JSON.parse(await f.run()).packages;
   assert.equal(packages.find(p => p.name === 'shared').version, '2.0.0');
   assert.ok(packages.some(p => p.name === 'peer'));
+});
+
+test('unlocked installed shadows and incompatible locked resolutions fail closed', async t => {
+  const f = await fixture(t);
+  await f.write('node_modules/@fixture/ui/node_modules/shared/package.json', { name: 'shared', version: '2.0.0' });
+  await assert.rejects(f.run(), /shadow|lockfile/i);
+  await f.npm('shared', { version: '2.0.0' }, 'node_modules/@fixture/ui/node_modules/shared');
+  await f.save();
+  await assert.rejects(f.run(), /range|version constraint/i);
+});
+
+test('cumulative notice size fails before reading later packages', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 10; i++) {
+    await f.write(`crate/NOTICE-${i}`, '\u0001'.repeat(700000));
+  }
+  let targetsRead = 0;
+  await assert.rejects(generateNotices({ root: f.root, metadata: target => {
+    targetsRead++;
+    return f.metadata(target);
+  } }), /aggregate notice/i);
+  assert.equal(targetsRead, 1);
 });
 
 test('platform-limited npm dependencies cannot certify the three-target union', async t => {
@@ -158,7 +181,7 @@ test('license URLs are preserved and private Windows/POSIX paths are rejected', 
   const f = await fixture(t);
   await f.write('crate/NOTICE', 'See https://www.apache.org/licenses/LICENSE-2.0');
   assert.ok((await f.run()).includes('https://www.apache.org/licenses/LICENSE-2.0'));
-  for (const text of ['C:/Users/fixture/private', '/home/fixture/private', '/Users/fixture/private']) {
+  for (const text of ['C:/Users/fixture/private', '/home/fixture/private', '/Users/fixture/private', String.raw`\\private-server\confidential-share\project\LICENSE`, '//private-server/confidential-share/project/LICENSE']) {
     await f.write('crate/NOTICE', text);
     await assert.rejects(f.run(), /private path/i);
   }
