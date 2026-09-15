@@ -47,6 +47,7 @@ export default function App({ backend }: { backend: Backend }) {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [tab, setTab] = useState("Repositories");
   const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
   const [workspaceQuery, setWorkspaceQuery] = useState('');
   const workspaceSearch = useRef<HTMLInputElement>(null);
   const listSearch = useRef<HTMLInputElement>(null);
@@ -363,12 +364,12 @@ export default function App({ backend }: { backend: Backend }) {
   const unavailable = snapshot.repositories.filter(r => r.error || !r.status).length;
   const repositories = snapshot.repositories.filter(r =>
     `${nameFor(r)} ${r.relativePath} ${workspace?.rootPath ?? ''}`
-      .toLowerCase().includes(query.toLowerCase()),
+      .toLowerCase().includes(normalizedQuery),
   );
   const entries = snapshot.entries.filter(
     (e) =>
       (tab !== "Agents" || e.agentConfig) &&
-      e.path.toLowerCase().includes(query.toLowerCase()),
+      e.path.toLowerCase().includes(normalizedQuery),
   );
   const scanLabel = progress
     ? progress.phase === "discovery"
@@ -647,7 +648,7 @@ export default function App({ backend }: { backend: Backend }) {
                   (tab === "Repositories"
                     ? repositories.length === 0
                     : entries.length === 0) && (
-                    <p className="empty-list">{query ? `No ${tab.toLowerCase()} match your filter.` : `No ${tab.toLowerCase()} found.`}</p>
+                    <p className="empty-list">{normalizedQuery ? `No ${tab.toLowerCase()} match your filter.` : `No ${tab.toLowerCase()} found.`}</p>
                   )}
               </section>
               <section className="inspector" aria-label="Inspector">
