@@ -16,12 +16,17 @@ The `.git/HEAD` check uses a separate fixture so an excluded write cannot satisf
 it. Both observation windows are five seconds. Production filtering is unchanged;
 temporary path diagnostics were removed.
 
-Local Windows verification:
+Local Windows verification before the fixture split (bd3a413):
 
 - `cargo test --locked -p repodeck-core --test watch`: all four tests passed.
 - Mutation check: temporarily remove `node_modules` from the test's exclusions;
   the negative assertion fails as expected. Restore it; all four tests pass again.
-- `cargo fmt --all --check`: passed before the final documentation-only addition.
+- `cargo fmt --all --check`: passed.
+
+After the fixture split (b6a45a7), all five watcher tests and formatting passed on
+Windows. The mutation result above applies to the earlier combined fixture; it
+was not rerun on macOS. Independent read-only review found no remaining actionable
+code/CI issues after the split, but did not execute tests or installers.
 
 Independent review identified the delayed-event cross-check gap and the previous
 host-architecture ambiguity. The fixtures are now separate, and CI uses explicit

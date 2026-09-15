@@ -24,6 +24,10 @@ Installers will be published in [GitHub Releases](https://github.com/pulkitchand
 with a version, source commit, release notes and SHA-256 checksums. CI build
 artifacts are development evidence, not a stable release.
 
+For isolated testing, [existing development installer builds](docs/releases/development-builds.md)
+are available with checksums and explicit limitations. These temporary CI downloads
+are not release-ready installers.
+
 | Platform | Installer | Status |
 | --- | --- | --- |
 | Windows x64 | `.exe` setup | Release verification pending |
