@@ -35,7 +35,7 @@ work, access private data, change security settings, or publish releases.
 ## Verification
 
 Use Node.js 22.12+ (CI uses 24), Rust stable and Git supporting
-`git --no-lazy-fetch --version`. See README for platform build prerequisites.
+`git --no-lazy-fetch --version`. See DEVELOPMENT.md for platform build prerequisites.
 From the repository root, the baseline checks are:
 
 ```sh
@@ -51,7 +51,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 - Add a focused regression test for a behavioral fix. Run relevant tests after
   the final edit and report exact commands, platforms, outcomes and skipped checks.
-- UI changes also need relevant browser checks from README; native behavior needs
+- UI changes also need relevant browser checks from DEVELOPMENT.md; native behavior needs
   native evidence. Browser fixtures and successful packaging do not prove installability.
 - Read scripts before running native or installer checks. Run native UI scripts
   sequentially and follow the installation restrictions below.
