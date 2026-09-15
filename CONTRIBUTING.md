@@ -1,6 +1,10 @@
 # Contributing to RepoDeck
 
-Start with the setup and checks in [README](README.md). Product requirements and the verification ledger define v1 scope and unfinished work.
+Start with the setup and checks in [the development guide](DEVELOPMENT.md). Product requirements and the verification ledger define v1 scope and unfinished work.
+
+AI-assisted contributions follow [the AI contribution policy](docs/agents/ai-contribution-policy.md).
+Coding agents should start with [AGENTS.md](AGENTS.md) and [the knowledge map](docs/agents/knowledge.md).
+Use a topic branch and PR; `main` requires passing `Desktop verification`, including for the maintainer.
 
 ## Layout
 
