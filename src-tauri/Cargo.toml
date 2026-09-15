@@ -11,7 +11,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 repodeck-core = { path = "../crates/core" }
 serde = { version = "1", features = ["derive"] }
-rfd = "0.15"
+rfd = "0.17.2"
 open = "5"
 
 [target.'cfg(windows)'.dependencies]
