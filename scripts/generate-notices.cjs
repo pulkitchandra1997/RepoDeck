@@ -97,7 +97,7 @@ async function texts(directory, declaredFile, label, privateRoots, budget) {
     total += Buffer.byteLength(text);
     requireNotice(total <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
     const combined = `${file}\n${text}`.replaceAll('\\', '/').toLowerCase();
-    requireNotice(!privateRoots.concat(base).some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/|(?:^|[\s"'(<])\/\/[^/\s]+\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
+    requireNotice(!privateRoots.concat(base).some(root => root && combined.includes(root.replaceAll('\\', '/').toLowerCase())) && !/(?:\b[a-z]:\/|\/(?:users|home)\/|(?<![:/])\/\/[^/\s]+\/)/i.test(combined), `${label}: private path in notice text or filename; review original locally`);
     reserve(budget, { file, text });
     result.push({ file, text });
   }
@@ -137,8 +137,9 @@ async function npmPackages(root, budget, privateRoots) {
       reserve(budget, { name, version: pkg.version, license, targets: TARGETS });
       result.push({ ecosystem: 'npm', name, version: pkg.version, license, targets: sorted(TARGETS), texts: await texts(directory, null, label, privateRoots, budget) });
     }
-    const deps = { ...pkg.dependencies, ...pkg.peerDependencies, ...pkg.optionalDependencies };
-    for (const name of sorted(Object.keys(deps))) {
+    const declarations = [pkg.dependencies, pkg.peerDependencies, pkg.optionalDependencies].filter(Boolean);
+    const names = new Set(declarations.flatMap(group => Object.keys(group)));
+    for (const name of sorted(names)) {
       identity(name, '0.0.0');
       let parent = location, found;
       while (true) {
@@ -154,7 +155,10 @@ async function npmPackages(root, budget, privateRoots) {
       }
       // Optional edges are also required: no silently incomplete cross-target artifact.
       requireNotice(found, `npm ${name}: unresolved dependency (including optional/peer)`);
-      requireNotice(typeof deps[name] === 'string' && semver.validRange(deps[name]) && semver.satisfies(lock.packages[found].version, deps[name]), `npm ${name}: unsupported range or incompatible version constraint`);
+      for (const group of declarations) {
+        if (!Object.hasOwn(group, name)) continue;
+        requireNotice(typeof group[name] === 'string' && semver.validRange(group[name]) && semver.satisfies(lock.packages[found].version, group[name]), `npm ${name}: unsupported range or incompatible version constraint`);
+      }
       queue.push(found);
       requireNotice(queue.length <= 100000, 'npm edge limit exceeded');
     }

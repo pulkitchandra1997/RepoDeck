@@ -164,6 +164,13 @@ test('cumulative notice size fails before reading later packages', async t => {
   assert.equal(targetsRead, 1);
 });
 
+test('peer declarations cannot overwrite an incompatible dependency constraint', async t => {
+  const f = await fixture(t);
+  await f.npm('@fixture/ui', { dependencies: { shared: '2.0.0' }, peerDependencies: { shared: '*' } });
+  await f.save();
+  await assert.rejects(f.run(), /version constraint/i);
+});
+
 test('platform-limited npm dependencies cannot certify the three-target union', async t => {
   const f = await fixture(t);
   await f.npm('shared', { os: ['win32'] });
@@ -181,7 +188,7 @@ test('license URLs are preserved and private Windows/POSIX paths are rejected', 
   const f = await fixture(t);
   await f.write('crate/NOTICE', 'See https://www.apache.org/licenses/LICENSE-2.0');
   assert.ok((await f.run()).includes('https://www.apache.org/licenses/LICENSE-2.0'));
-  for (const text of ['C:/Users/fixture/private', '/home/fixture/private', '/Users/fixture/private', String.raw`\\private-server\confidential-share\project\LICENSE`, '//private-server/confidential-share/project/LICENSE']) {
+  for (const text of ['C:/Users/fixture/private', '/home/fixture/private', '/Users/fixture/private', String.raw`\\private-server\confidential-share\project\LICENSE`, '//private-server/confidential-share/project/LICENSE', 'source=//private-server/share/LICENSE', '`//private-server/share/LICENSE`']) {
     await f.write('crate/NOTICE', text);
     await assert.rejects(f.run(), /private path/i);
   }

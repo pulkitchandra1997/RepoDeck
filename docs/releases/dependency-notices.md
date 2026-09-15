@@ -107,7 +107,7 @@ development exclusion, target filtering and union, declared files, standard
 compound and unsupported/custom identifiers, missing/empty/oversized text,
 installed drift, private-path handling, preserved URLs, deterministic ordering,
 incomplete graphs, subprocess bounds and CLI failure without an artifact.
-The focused run on Windows with Node.js 24.19.0 passed all 15 tests:
+The focused run on Windows with Node.js 24.19.0 passed all 16 tests:
 `node --test scripts/notices.test.cjs`. This includes unlocked installed shadows,
 incompatible resolutions, UNC paths and early aggregate-budget rejection.
 These fixtures do not constitute native installer verification.
