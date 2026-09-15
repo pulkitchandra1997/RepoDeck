@@ -68,6 +68,16 @@ struct SettingsLock {
     _file: fs::File,
 }
 
+impl Drop for SettingsLock {
+    fn drop(&mut self) {
+        // Closing alone leaves the lock held by duplicated descriptors, including
+        // those inherited briefly by an unrelated fork before it calls exec.
+        // Drop is best-effort and must not panic or report success on failure.
+        // The handle still closes; contenders fail closed while any lock remains.
+        let _ = self._file.unlock();
+    }
+}
+
 impl SettingsLock {
     fn acquire(path: &Path) -> Result<Self, String> {
         let name = path.file_name().ok_or("Invalid settings path")?;
@@ -292,5 +302,75 @@ impl Settings {
             .ok_or("Workspace not found")?;
         self.workspaces.remove(position);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    #[test]
+    fn transaction_unlocks_even_while_a_duplicate_descriptor_is_alive() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let lock = SettingsLock::acquire(&path).unwrap();
+        // A duplicate retains the same OS lock ownership, like a forked child
+        // before exec closes its inherited descriptors on Unix.
+        let duplicate = lock._file.try_clone().unwrap();
+        assert!(SettingsLock::acquire(&path).is_err());
+        drop(lock);
+        let next = SettingsLock::acquire(&path)
+            .expect("A completed transaction must not leave its lock on a duplicate descriptor");
+        drop(duplicate);
+        assert!(SettingsLock::acquire(&path).is_err());
+        drop(next);
+        assert!(SettingsLock::acquire(&path).is_ok());
+    }
+
+    #[test]
+    fn failed_contenders_cannot_release_the_winning_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let baseline = Settings::default();
+        baseline.save(&path).unwrap();
+        let winner = Settings {
+            theme: "dark".into(),
+            ..baseline.clone()
+        };
+        let contender = Settings {
+            theme: "light".into(),
+            ..baseline.clone()
+        };
+        let transaction = SettingsLock::acquire(&path).unwrap();
+        winner.save_locked(&transaction.path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        for _ in 0..3 {
+            assert!(contender
+                .save_if_unchanged(&path, &baseline)
+                .unwrap_err()
+                .contains("lock"));
+            assert!(SettingsLock::acquire(&path).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        drop(transaction);
+        assert!(contender
+            .save_if_unchanged(&path, &baseline)
+            .unwrap_err()
+            .contains("changed"));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        contender.save_if_unchanged(&path, &winner).unwrap();
+        assert_eq!(Settings::load(&path).unwrap(), contender);
+    }
+
+    #[test]
+    fn dropping_an_already_unlocked_guard_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let lock = SettingsLock::acquire(&path).unwrap();
+        lock._file.unlock().unwrap();
+        // A second unlock may fail on platforms such as Windows. Drop must
+        // tolerate that error without unwinding or exposing a success result.
+        assert!(std::panic::catch_unwind(|| drop(lock)).is_ok());
+        assert!(SettingsLock::acquire(&path).is_ok());
     }
 }
