@@ -76,11 +76,20 @@ function backend(): Backend {
   };
 }
 describe("Workspace experience", () => {
-  it.each(['Repositories', 'Files', 'Agents'])('normalizes %s searches without contradictory empty results', async tab => {
+  async function renderScannedWorkspace(result: Snapshot = snapshot) {
     const api = backend();
     api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
-    render(<App backend={api} />);
-    await screen.findByRole('button', { name: /^api/ });
+    let finishScan!: (value: Snapshot) => void;
+    api.scan = () => new Promise(resolve => { finishScan = resolve; });
+    await act(async () => { render(<App backend={api} />); });
+    expect(screen.getByRole('button', { name: 'Stop scan' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^api/ })).toBeNull();
+    expect(screen.queryByText('No repositories found.')).toBeNull();
+    await act(async () => { finishScan(result); });
+    expect(screen.queryByRole('button', { name: 'Stop scan' })).toBeNull();
+  }
+  it.each(['Repositories', 'Files', 'Agents'])('normalizes %s searches without contradictory empty results', async tab => {
+    await renderScannedWorkspace();
     await userEvent.click(screen.getByRole('tab', { name: tab }));
     const input = screen.getByRole('textbox', { name: 'Filter workspace' });
     const listing = within(screen.getByRole('region', { name: tab }));
@@ -99,24 +108,15 @@ describe("Workspace experience", () => {
     expect(listing.getByText(`No ${tab.toLowerCase()} match your filter.`)).toBeTruthy();
   });
   it.each(['Repositories', 'Files', 'Agents'])('treats whitespace as no filter in an empty %s view', async tab => {
-    const api = backend();
-    api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
-    api.scan = async () => ({ entries: [], repositories: [], warnings: [] });
-    render(<App backend={api} />);
-    await screen.findByText('No repositories found.');
+    await renderScannedWorkspace({ entries: [], repositories: [], warnings: [] });
+    expect(screen.getByText('No repositories found.')).toBeTruthy();
     await userEvent.click(screen.getByRole('tab', { name: tab }));
     await userEvent.type(screen.getByRole('textbox', { name: 'Filter workspace' }), '   ');
     expect(screen.getByText(`No ${tab.toLowerCase()} found.`)).toBeTruthy();
     expect(screen.queryByText(`No ${tab.toLowerCase()} match your filter.`)).toBeNull();
   });
   it('shows the backend comparison limitation for the selected repository', async () => {
-    const api = backend();
-    api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
-    let finishScan!: (value: Snapshot) => void;
-    api.scan = () => new Promise(resolve => { finishScan = resolve; });
-    await act(async () => { render(<App backend={api} />); });
-    expect(screen.queryByRole('button', { name: /^api/ })).toBeNull();
-    await act(async () => { finishScan(snapshot); });
+    await renderScannedWorkspace();
     await userEvent.click(screen.getByRole('button', { name: /^api/ }));
     expect(screen.getByText('Submodule working-file changes are shown separately.')).toBeTruthy();
   });
