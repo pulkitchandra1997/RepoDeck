@@ -1,5 +1,49 @@
 # V1 Implementation and Verification Ledger
 
+## Current Summary: 2026-09-15
+
+The public [v0.1.0 development preview](https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v0.1.0)
+provides Windows x64, macOS Apple Silicon and macOS Intel installers, plus per-file
+SHA-256 checksums and JSON build records. Installers are unsigned and macOS builds
+are not notarized. This is an experimental prerelease, not stable release approval.
+Use the [platform downloads](../../README.md#downloads-and-version); source archives
+are for development, and matching source/package version numbers alone do not
+identify the published binary.
+
+- **Source and successful CI:** the release records source
+  [`30056ddbaae3e59ad893306b3e7800991e95050f`](https://github.com/pulkitchandra1997/RepoDeck/commit/30056ddbaae3e59ad893306b3e7800991e95050f).
+  Main [run 34944670054](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/34944670054)
+  passed Windows x64, macOS ARM64 and macOS x64 jobs and aggregate `Desktop verification`.
+  The release notes identify its installers as unchanged artifacts from that run.
+  This establishes CI build/check evidence, not native Mac application or installer
+  lifecycle verification, universal OS compatibility or installation certification.
+- **Failed tag run:** [run 34998022414](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/34998022414)
+  failed `Require completed release readiness review` on all three targets;
+  aggregate verification failed and draft release creation was skipped. Successful
+  main CI and the existing public preview do not make this tag run green.
+- **Outstanding gates:** complete reviewed dependency notices, isolated Windows
+  and native Mac installer lifecycle evidence, and an approved private conduct
+  contact remain open. Signing/notarization are deferred to later releases; do not
+  disable OS security controls. See the [dated product backlog map](product-gap-audit-2026-09-15.md)
+  for issues #17-37 and the distinction between source audit and runtime evidence.
+- **Current contributions:** documentation-only PRs still require `Desktop verification`
+  on the current revision before merge. This historical main run does not verify
+  a new PR. Source merge and release publication require separate authorization.
+
+**Historical corrections:** statements below that no repository has been published,
+GitHub CI has not run, or macOS builds have not been produced are outdated as of
+2026-09-15. Both macOS targets now have successful GitHub build evidence. Historical
+claims that no macOS host was used describe the earlier local session, not current
+CI coverage; native Mac application/installation coverage remains pending.
+
+The entries below are preserved as historical observations, including their dates,
+test counts and artifact hashes. They do not certify the current preview. Historical
+same-account Windows install/uninstall procedures must not be repeated: follow
+[AGENTS.md](../../AGENTS.md#local-installation-safety) and use a disposable VM or
+dedicated Windows account for installer lifecycle tests.
+
+## Historical Ledger
+
 Updated: 2026-09-11. V1 is in development, not ready for stable release.
 
 An unsigned Windows development installer is now available for evaluation. It is not a stable v1 release.
