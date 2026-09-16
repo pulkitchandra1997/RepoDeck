@@ -5,7 +5,8 @@ const path = require('node:path');
 const os = require('node:os');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { generateNotices, TARGETS } = require('./generate-notices.cjs');
+const { createHash } = require('node:crypto');
+const { generateNotices, runCli, TARGETS } = require('./generate-notices.cjs');
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repodeck-notices-'));
@@ -215,4 +216,307 @@ test('incomplete Cargo graph fails and CLI produces no artifact on failure', asy
   await f.write('package-lock.json', { lockfileVersion: 2 });
   await assert.rejects(promisify(execFile)(process.execPath, [path.join(__dirname, 'generate-notices.cjs'), output], { cwd: f.root }), error => error.code === 1 && !error.stderr.includes(f.root));
   await assert.rejects(fs.access(output));
+});
+
+async function fallbackFixture(t) {
+  const f = await fixture(t);
+  await fs.rm(path.join(f.root, 'crate/LICENSE-MIT'));
+  const revision = 'a'.repeat(40);
+  const repository = 'https://github.com/fixture/upstream';
+  const text = 'Fixture upstream terms\r\nCopyright fixture\r\n';
+  const source = { repository, revision, file: 'LICENSE', role: 'license', text,
+    sha256: createHash('sha256').update(text).digest('hex') };
+  const entry = { name: 'windows-crate', version: '2.0.0', license: 'MIT', repository,
+    revision, pathInVcs: 'crate', status: 'text-reviewed', reason: 'Fixture source review only.', sources: [0] };
+  const manifest = { schemaVersion: 1, sources: [source], packages: [entry] };
+  const saveFallback = () => f.write('scripts/license-fallbacks/manifest.json', manifest);
+  await saveFallback();
+  await f.write('crate/.cargo_vcs_info.json', { git: { sha1: revision }, path_in_vcs: 'crate' });
+  const metadata = target => {
+    const m = f.metadata(target);
+    Object.assign(m.packages[1], { name: 'windows-crate', repository,
+      source: 'registry+https://github.com/rust-lang/crates.io-index' });
+    return m;
+  };
+  return { ...f, manifest, source, entry, saveFallback, metadata,
+    run: options => generateNotices({ root: f.root, metadata, ...options }) };
+}
+
+test('pinned offline fallback preserves exact text, hash and upstream provenance across targets', async t => {
+  const f = await fallbackFixture(t);
+  const doc = JSON.parse(await f.run());
+  assert.equal(doc.collectionComplete, true);
+  const pkg = doc.packages.find(p => p.name === 'windows-crate');
+  const evidence = pkg.texts.find(text => text.provenance.kind === 'pinned-upstream');
+  assert.equal(evidence.text, f.source.text);
+  assert.equal(evidence.sha256, f.source.sha256);
+  assert.equal(evidence.provenance.url, `${f.entry.repository}/blob/${f.entry.revision}/LICENSE`);
+  assert.ok(pkg.texts.some(text => text.file === 'NOTICE'));
+  assert.deepEqual(pkg.targets, [...TARGETS].sort());
+});
+
+test('fallback refuses hash, version, declaration, repository and revision drift', async t => {
+  const f = await fallbackFixture(t);
+  for (const [object, field, value] of [
+    [f.source, 'sha256', 'b'.repeat(64)], [f.entry, 'version', '2.0.1'],
+    [f.entry, 'license', 'Apache-2.0'], [f.entry, 'repository', 'https://github.com/other/upstream'],
+    [f.entry, 'revision', 'b'.repeat(40)], [f.entry, 'pathInVcs', 'other'],
+  ]) {
+    const previous = object[field];
+    object[field] = value;
+    await f.saveFallback();
+    await assert.rejects(f.run(), /fallback|missing license/i);
+    object[field] = previous;
+  }
+});
+
+test('fallback rejects unsafe paths, mutable revisions, duplicate entries and oversized texts', async t => {
+  const f = await fallbackFixture(t);
+  for (const file of ['../LICENSE', '/LICENSE', 'C:/LICENSE', 'legal\\LICENSE', 'a/../../LICENSE', 'a//LICENSE']) {
+    f.source.file = file;
+    await f.saveFallback();
+    await assert.rejects(f.run(), /fallback/i);
+  }
+  f.source.file = 'LICENSE';
+  f.source.revision = 'main';
+  await f.saveFallback();
+  await assert.rejects(f.run(), /fallback/i);
+  f.source.revision = f.entry.revision;
+  f.manifest.packages.push({ ...f.entry });
+  await f.saveFallback();
+  await assert.rejects(f.run(), /duplicate fallback/i);
+  f.manifest.packages.pop();
+  f.source.text = 'x'.repeat(2 * 1024 * 1024 + 1);
+  f.source.sha256 = createHash('sha256').update(f.source.text).digest('hex');
+  await f.saveFallback();
+  await assert.rejects(f.run(), /fallback.*(size|limit)/i);
+});
+
+test('blocked upstream terms cannot be cleared by a LICENSE filename; inventory visits all targets', async t => {
+  const f = await fallbackFixture(t);
+  f.entry.status = 'blocked';
+  f.entry.reason = 'Fixture upstream explicitly leaves derived SDK terms unresolved.';
+  await f.saveFallback();
+  await f.write('crate/LICENSE', 'Fixture local license does not resolve SDK terms');
+  await assert.rejects(f.run(), /unresolved.*3 target/i);
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  assert.equal(doc.collectionComplete, false);
+  assert.equal(doc.unresolved.length, 1);
+  assert.deepEqual(doc.unresolved[0].targets, [...TARGETS].sort());
+  assert.match(doc.unresolved[0].reason, /SDK terms/);
+  assert.ok(doc.packages.find(p => p.name === 'windows-crate').texts.some(text => text.sha256 === f.source.sha256));
+});
+
+test('inventory retains missing-license packages and never mistakes an incomplete graph for a collection', async t => {
+  const f = await fixture(t);
+  await fs.rm(path.join(f.root, 'crate/LICENSE-MIT'));
+  const doc = JSON.parse(await generateNotices({ root: f.root, metadata: f.metadata, inventory: true }));
+  assert.equal(doc.collectionComplete, false);
+  assert.equal(doc.unresolved.length, 2);
+  assert.equal(doc.packages.length, 4);
+  await assert.rejects(generateNotices({ root: f.root, metadata: () => null, inventory: true }), /Cargo metadata/);
+});
+
+test('bundle command refuses unresolved evidence and stale output; inventory output stays separate', async t => {
+  const f = await fallbackFixture(t);
+  const output = path.join(f.root, '.tools/notices/THIRD-PARTY-NOTICES.json');
+  const options = { root: f.root, metadata: f.metadata };
+  f.entry.status = 'blocked';
+  await f.saveFallback();
+  await assert.rejects(runCli(['--bundle'], options), /unresolved/i);
+  await assert.rejects(fs.access(output));
+  await runCli(['--inventory', 'inventory.json'], options);
+  assert.equal(JSON.parse(await fs.readFile(path.join(f.root, 'inventory.json'))).collectionComplete, false);
+  await f.write('.tools/notices/THIRD-PARTY-NOTICES.json', 'stale');
+  await assert.rejects(runCli(['--bundle'], options), /unresolved/i);
+  assert.equal(await fs.readFile(output, 'utf8'), 'stale');
+  f.entry.status = 'text-reviewed';
+  await f.saveFallback();
+  await assert.rejects(runCli(['--bundle'], options), /EEXIST/);
+  await fs.rm(output);
+  await runCli(['--bundle'], options);
+  assert.equal(JSON.parse(await fs.readFile(output)).collectionComplete, true);
+  await assert.rejects(runCli(['--bundle'], options), /EEXIST/);
+  await assert.rejects(runCli(['--bundle', '--inventory'], options), /Usage/);
+});
+
+test('fallback and bundle directory links cannot redirect reads or writes', async t => {
+  const f = await fallbackFixture(t);
+  const fallbackDir = path.join(f.root, 'scripts/license-fallbacks');
+  await fs.rename(fallbackDir, path.join(f.root, 'moved-fallbacks'));
+  await fs.symlink(path.join(f.root, 'moved-fallbacks'), fallbackDir, 'junction');
+  await assert.rejects(f.run(), /Fallback manifest.*linked/i);
+  await fs.unlink(fallbackDir);
+  await fs.rename(path.join(f.root, 'moved-fallbacks'), fallbackDir);
+  const manifestFile = path.join(fallbackDir, 'manifest.json');
+  await fs.rename(manifestFile, path.join(fallbackDir, 'saved.json'));
+  await fs.mkdir(manifestFile);
+  await assert.rejects(f.run(), /Fallback manifest.*regular/i);
+  await fs.rmdir(manifestFile);
+  await fs.rename(path.join(fallbackDir, 'saved.json'), manifestFile);
+  await fs.mkdir(path.join(f.root, 'other'));
+  await fs.symlink(path.join(f.root, 'other'), path.join(f.root, '.tools'), 'junction');
+  await assert.rejects(runCli(['--bundle'], { root: f.root, metadata: f.metadata }), /linked bundle/i);
+  assert.deepEqual(await fs.readdir(path.join(f.root, 'other')), []);
+});
+
+test('checked-in upstream evidence validates offline and retains every explicit blocker', async t => {
+  const f = await fixture(t);
+  const manifest = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/manifest.json')));
+  await f.write('scripts/license-fallbacks/manifest.json', manifest);
+  const packages = [], nodes = [];
+  for (const entry of manifest.packages) {
+    const directory = `upstream/${entry.name}`;
+    await f.write(`${directory}/.cargo_vcs_info.json`, { git: { sha1: entry.revision }, ...(entry.pathInVcs === null ? {} : { path_in_vcs: entry.pathInVcs }) });
+    for (const link of entry.linkedTerms || []) {
+      await f.write(`${directory}/${link.packageFile}`, manifest.sources[link.declaration].text);
+    }
+    if (entry.supplement) {
+      const sdk = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks', entry.supplement)));
+      for (const file of sdk.matchedFiles) {
+        const bytes = `Fixture bytes for ${file.crateFile}`;
+        await f.write(`${directory}/${file.crateFile}`, bytes);
+        file.bytes = Buffer.byteLength(bytes);
+        file.sha256 = createHash('sha256').update(bytes).digest('hex');
+      }
+      await f.write(`scripts/license-fallbacks/${entry.supplement}`, sdk);
+    }
+    packages.push({ id: entry.name, name: entry.name, version: entry.version, license: entry.license,
+      repository: entry.repository, source: 'registry+https://github.com/rust-lang/crates.io-index', manifest_path: path.join(f.root, directory, 'Cargo.toml') });
+    nodes.push({ id: entry.name, deps: [] });
+  }
+  const metadata = () => ({ version: 1, workspace_members: ['app'],
+    packages: [{ id: 'app', name: 'repodeck-desktop' }, ...packages],
+    resolve: { nodes: [{ id: 'app', deps: packages.map(pkg => ({ pkg: pkg.id, dep_kinds: [{ kind: null }] })) }, ...nodes] } });
+  const doc = JSON.parse(await generateNotices({ root: f.root, metadata, inventory: true }));
+  assert.equal(doc.collectionComplete, false);
+  assert.deepEqual(doc.unresolved.map(pkg => pkg.name).sort(), manifest.packages.filter(pkg => pkg.status === 'blocked').map(pkg => pkg.name).sort());
+  assert.ok(doc.unresolved.some(pkg => pkg.name === 'selectors'));
+  assert.ok(doc.unresolved.some(pkg => pkg.name === 'webview2-com-sys'));
+  const actualSources = new Set(doc.packages.flatMap(pkg => pkg.texts).filter(text => text.provenance.kind === 'pinned-upstream').map(text => `${text.provenance.url}:${text.sha256}`));
+  assert.equal(actualSources.size, manifest.sources.length);
+});
+
+test('fallback URL newlines and UTF-8 BOM are preserved; private paths remain rejected', async t => {
+  const f = await fallbackFixture(t);
+  f.source.text = '\ufeffSee https://www.apache.org/licenses/\n\nFixture terms\r\n';
+  f.source.sha256 = createHash('sha256').update(f.source.text).digest('hex');
+  await f.saveFallback();
+  const doc = JSON.parse(await f.run());
+  assert.ok(doc.packages.some(pkg => pkg.texts.some(text => text.text === f.source.text && text.sha256 === f.source.sha256)));
+  f.source.text = 'C:/Users/fixture/private';
+  f.source.sha256 = createHash('sha256').update(f.source.text).digest('hex');
+  await f.saveFallback();
+  await assert.rejects(f.run(), /private path/);
+});
+
+async function linkedTermsFixture(t) {
+  const f = await fallbackFixture(t);
+  const url = 'https://license.example.test/terms/2.0/';
+  const declaration = { ...f.source, file: 'crate/lib.rs', role: 'evidence', text: `Fixture source explicitly refers to ${url}\n` };
+  declaration.sha256 = createHash('sha256').update(declaration.text).digest('hex');
+  f.source.repository = 'https://github.com/fixture/license-steward';
+  f.source.revision = 'c'.repeat(40);
+  f.manifest.sources.push(declaration);
+  f.entry.sources.push(1);
+  f.entry.status = 'blocked';
+  f.entry.reason = 'Actual license text available; distribution/source delivery decision pending.';
+  f.entry.linkedTerms = [{ source: 0, declaration: 1, packageFile: 'lib.rs', url, textUrl: 'https://license.example.test/terms/2.0/index.txt' }];
+  await f.write('crate/lib.rs', declaration.text);
+  await f.saveFallback();
+  return f;
+}
+
+test('explicit pinned source reference makes external terms available without clearing distribution review', async t => {
+  const f = await linkedTermsFixture(t);
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  const pkg = doc.packages.find(pkg => pkg.name === f.entry.name);
+  assert.equal(pkg.licenseTextAvailable, true);
+  assert.equal(doc.collectionComplete, false);
+  assert.match(pkg.unresolved, /delivery decision/);
+  const text = pkg.texts.find(text => text.provenance.repository === f.source.repository);
+  assert.equal(text.sha256, f.source.sha256);
+  assert.equal(text.provenance.applicability.url, f.entry.linkedTerms[0].url);
+  assert.equal(text.provenance.applicability.declarationSha256, f.manifest.sources[1].sha256);
+  await assert.rejects(f.run(), /unresolved/i);
+});
+
+test('external terms require a bound same-package declaration and an explicit URL', async t => {
+  const f = await linkedTermsFixture(t);
+  const link = f.entry.linkedTerms[0];
+  for (const [field, value] of [['source', 99], ['declaration', 0], ['packageFile', '../lib.rs'],
+    ['packageFile', 'other.rs'], ['url', 'https://unmentioned.example.test/'],
+    ['url', 'https://license.example.test/'], ['textUrl', 'file:///private/terms']]) {
+    const previous = link[field];
+    link[field] = value;
+    await f.saveFallback();
+    await assert.rejects(f.run({ inventory: true }), /linked terms|fallback/i);
+    link[field] = previous;
+  }
+  f.entry.linkedTerms = [];
+  await f.saveFallback();
+  await assert.rejects(f.run({ inventory: true }), /does not match package provenance/);
+});
+
+test('changed or linked installed declaration cannot justify external license text', async t => {
+  const f = await linkedTermsFixture(t);
+  await f.write('crate/lib.rs', 'Fixture source no longer contains the declaration');
+  await assert.rejects(f.run({ inventory: true }), /declaration.*hash/i);
+  await fs.rm(path.join(f.root, 'crate/lib.rs'));
+  await fs.mkdir(path.join(f.root, 'crate/lib.rs'));
+  await assert.rejects(f.run({ inventory: true }), /declaration.*regular/i);
+});
+
+test('SDK supplemental texts require matching crate binaries and remain blocked for distribution', async t => {
+  const f = await fallbackFixture(t);
+  const sdk = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/webview2-sdk.json')));
+  assert.equal(sdk.matchedFiles.length, 9);
+  for (const text of sdk.texts) assert.equal(createHash('sha256').update(text.text).digest('hex'), text.sha256);
+  sdk.crate = { name: f.entry.name, version: f.entry.version, repository: f.entry.repository, revision: f.entry.revision, pathInVcs: f.entry.pathInVcs };
+  sdk.sdk.updateSource = `${f.entry.repository}/blob/${f.entry.revision}/update.rs`;
+  for (const file of sdk.matchedFiles) {
+    const bytes = `Fixture ${file.crateFile}`;
+    await f.write(`crate/${file.crateFile}`, bytes);
+    file.bytes = Buffer.byteLength(bytes);
+    file.sha256 = createHash('sha256').update(bytes).digest('hex');
+  }
+  f.entry.supplement = 'sdk.json';
+  f.entry.status = 'blocked';
+  await f.saveFallback();
+  const saveSdk = () => f.write('scripts/license-fallbacks/sdk.json', sdk);
+  await saveSdk();
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  const texts = doc.packages.find(pkg => pkg.name === f.entry.name).texts.filter(text => text.provenance.kind === 'pinned-archive');
+  assert.equal(texts.length, 3);
+  assert.equal(texts[0].provenance.archiveSha256, sdk.archiveSha256);
+  assert.equal(texts[0].provenance.matchedFiles.length, 9);
+  assert.equal(doc.collectionComplete, false);
+  await assert.rejects(f.run(), /unresolved/i);
+  for (const [object, key, value] of [[sdk.crate, 'version', '99.0.0'],
+    [sdk.matchedFiles[0], 'bytes', 16 * 1024 * 1024 + 1],
+    [sdk, 'matchedFiles', sdk.matchedFiles.slice(1)], [sdk, 'status', 'approved']]) {
+    const previous = object[key];
+    object[key] = value;
+    await saveSdk();
+    await assert.rejects(f.run({ inventory: true }), /SDK/i);
+    object[key] = previous;
+  }
+  await saveSdk();
+  await f.write(`crate/${sdk.matchedFiles[0].crateFile}`, 'x'.repeat(sdk.matchedFiles[0].bytes));
+  await assert.rejects(f.run({ inventory: true }), /SDK.*hash/i);
+  await f.write(`crate/${sdk.matchedFiles[0].crateFile}`, 'x'.repeat(sdk.matchedFiles[0].bytes + 1));
+  await assert.rejects(f.run({ inventory: true }), /SDK.*size/i);
+  const archiveUrl = sdk.archiveUrl;
+  sdk.archiveUrl = 'https://unrelated.example.test/sdk.nupkg';
+  await saveSdk();
+  await assert.rejects(f.run({ inventory: true }), /SDK archive/i);
+  sdk.archiveUrl = archiveUrl;
+  const crateFile = sdk.matchedFiles[0].crateFile;
+  sdk.matchedFiles[0].crateFile = '../outside.dll';
+  await saveSdk();
+  await assert.rejects(f.run({ inventory: true }), /SDK binary path/i);
+  sdk.matchedFiles[0].crateFile = crateFile;
+  sdk.texts[0].text += 'tampered';
+  await saveSdk();
+  await assert.rejects(f.run({ inventory: true }), /SDK text hash/i);
 });
