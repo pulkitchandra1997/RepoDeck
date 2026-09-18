@@ -3,6 +3,8 @@
 #[cfg(windows)]
 mod terminal_windows;
 
+mod settings_ipc;
+
 use repodeck_core::workspace::{ScanProgress, Snapshot};
 use repodeck_core::{files, repository, scanner, settings::Settings};
 use serde::Serialize;
@@ -267,26 +269,19 @@ async fn add_workspace(state: State<'_, AppState>) -> Result<Option<Settings>, S
     let mut guard = state.settings.lock().map_err(|_| "Settings unavailable")?;
     let mut next = guard.clone()?;
     next.add_workspace(folder.path())?;
-    next.save(&state.path)?;
-    *guard = Ok(next.clone());
-    Ok(Some(next))
+    settings_ipc::persist(&state.path, &mut guard, next).map(Some)
 }
 #[tauri::command]
 fn remove_workspace(state: State<AppState>, id: String) -> Result<Settings, String> {
     let mut guard = state.settings.lock().map_err(|_| "Settings unavailable")?;
     let mut next = guard.clone()?;
     next.remove_workspace(&id)?;
-    next.save(&state.path)?;
-    *guard = Ok(next.clone());
-    Ok(next)
+    settings_ipc::persist(&state.path, &mut guard, next)
 }
 #[tauri::command]
-fn save_settings(state: State<AppState>, mut settings: Settings) -> Result<Settings, String> {
+fn save_settings(state: State<AppState>, settings: Settings) -> Result<Settings, String> {
     let mut guard = state.settings.lock().map_err(|_| "Settings unavailable")?;
-    settings.workspaces = guard.as_ref().map_err(|e| e.clone())?.workspaces.clone();
-    settings.save(&state.path)?;
-    *guard = Ok(settings.clone());
-    Ok(settings)
+    settings_ipc::save_preferences(&state.path, &mut guard, settings)
 }
 #[tauri::command]
 async fn scan_workspace(
