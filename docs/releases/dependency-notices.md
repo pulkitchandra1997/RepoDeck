@@ -229,8 +229,9 @@ and five npm). Target membership is 268 third-party Cargo packages for Windows,
 262 for each macOS architecture, and five npm packages on every target.
 The schema-v3 candidate reports `collectionComplete: true`, zero `unresolved`
 notice entries, 11 `pendingReview` entries, and `releaseGateComplete: false`.
-For the lockfiles inherited from `30056dd` and the branch after merging
-`origin/main` at `f7248da`, the updated inventory is 3,019,713 bytes with SHA-256
+For the lockfiles inherited from `30056dd` and the branch after normal-merging
+`origin/main` at `a363fe7` (`0.1.1-preview.2`), the updated inventory is
+3,019,713 bytes with SHA-256
 `0ec2592563ef1deac1a625b0821a56da25b6e51932fda2612ae0aec7cc6f70ff`.
 All individual text hashes were recomputed and verified. Earlier September 15 and
 16 artifacts are historical evidence, not the current collection.
@@ -363,10 +364,12 @@ The minimally sufficient release package-content record is:
    exact MIT terms for the four MIT declarations, all three declared alternatives
    for the seven `OR` declarations without selecting one, and every pinned
    declaration/provenance hash.
-2. Add one native CI evidence file per macOS architecture containing a sorted
-   recursive `.app` file inventory and `otool -L` output for every Mach-O file;
-   bind it to the DMG SHA-256. This is proposed follow-up work in the workflow
-   owned by the separate macOS change, not part of this branch.
+2. Accept one native CI evidence file per macOS architecture containing a sorted
+   recursive `.app` file inventory and `otool -L` output for every Mach-O regular
+   file, bound to the version, architecture, and DMG SHA-256. Open
+   [issue #56](https://github.com/pulkitchandra1997/RepoDeck/issues/56) owns the
+   scripts and workflow changes that produce this evidence; they are not part of
+   this branch.
 3. Ask the maintainer or qualified reviewer only whether the observed generated
    interfaces/documentation and compiled references can be treated as an
    application built against Apple interfaces under the applicable agreement, or
@@ -378,6 +381,16 @@ If that review accepts the bounded evidence, change the 11 manifest records from
 the release workflow, and inspect the notice resource in both DMGs. If review
 requires more, the blocker must name the specific file/material and requested
 evidence; “recover all historical provenance” is not an actionable gate.
+
+Evidence from issue #56 is ready for acceptance only when both architectures
+have a successful, separately retained record for the exact release candidate;
+the inventory does not follow links outside the application; every discovered
+Mach-O regular file has an import listing; and missing files, command failures,
+or incomplete output fail closed. The reviewer should record whether the evidence
+shows only RepoDeck application files and macOS system-framework references. Any
+additional file or import must be named and mapped to the dependency/notice review
+before changing a manifest status. Successful CI or evidence generation alone
+must not change any of the 11 review statuses.
 
 The node:test fixtures cover production/scoped/nested/peer resolution,
 development exclusion, target filtering and union, declared files, standard
@@ -395,8 +408,9 @@ is validated offline in fixtures. These fixtures do not constitute native
 installer verification.
 
 The September 21 post-merge Windows run, after normal-merging `origin/main` at
-`f7248da`, passed `npm run test:notices` (32 tests), `npm run test:release`
-(13 tests), `npm test` (131 tests), `npm run build` (1,884 modules),
+`a363fe7` and preserving `0.1.1-preview.2`, passed `npm run test:notices`
+(32 tests), `npm run test:release` (13 tests), `npm test` (131 tests),
+`npm run build` (1,884 modules),
 `npm run check:release`, `cargo test --locked -p repodeck-core` (eight ignored
 environment/manual fixtures), `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, the local relative-link
@@ -419,8 +433,9 @@ ignored environment/manual suites), `cargo fmt --all --check`,
 link check, and `git diff --check`. Browser/native application checks and installer
 lifecycle tests were not run locally. Hosted workflow run 35584015219 passed all
 three desktop targets and supplies the bounded DMG evidence above for commit
-`803fd1d`; required hosted verification for the new post-merge revision remains
-pending until it is pushed.
+`803fd1d`. Hosted workflow run 35592289396 passed all three desktop targets for
+commit `13e9ba8`; the pull request check remains authoritative for each later
+revision.
 
 Earlier September 15/16 Windows checks: `node --test scripts/notices.test.cjs
 scripts/release.test.cjs` (28 passed), `npm test` (118 passed), `npm run build`,
