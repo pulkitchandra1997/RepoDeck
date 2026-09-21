@@ -220,7 +220,7 @@ fn recovery_preserves_corrupt_and_future_settings_before_resetting() {
         assert_ne!(backup, path);
         assert_eq!(Settings::load(&path).unwrap(), Settings::default());
     }
-    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4); // Settings, lock, two backups.
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn recovery_refuses_valid_missing_or_non_file_settings() {
     assert!(Settings::recover(&path).is_err());
     assert_eq!(Settings::load(&path).unwrap(), settings);
     assert!(Settings::recover(dir.path()).is_err());
-    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2); // Settings and its persistent lock.
 }
 
 #[test]
