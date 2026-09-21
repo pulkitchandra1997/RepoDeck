@@ -126,7 +126,7 @@ test('validates a DMG with bounded native commands and detaches the exact mounte
       ['uname', ['-m']],
       ['hdiutil', ['imageinfo', dmg]],
       ['hdiutil', ['verify', dmg]],
-      ['hdiutil', ['attach', '-readonly', '-nobrowse', '-plist', '-mountpoint', mountPoint, dmg]],
+      ['hdiutil', ['attach', '-readonly', '-nobrowse', '-acceptlicense', '-plist', '-mountpoint', mountPoint, dmg]],
       ['plutil', ['-convert', 'json', '-o', '-', '-']],
       ['plutil', ['-convert', 'json', '-o', '-', path.join(app, 'Contents', 'Info.plist')]],
       ['lipo', ['-archs', executable]],
