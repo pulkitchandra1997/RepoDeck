@@ -125,8 +125,11 @@ Never run installer/uninstaller automation in the normal Windows account.
   blocking even if a local file named LICENSE appears.
 - A reviewed `linkedTerms` entry can connect an external pinned license-steward
   text to a same-revision source declaration that explicitly names its URL.
-  The declaration must be included as evidence, its crate-relative location must
-  match the upstream path, and the installed declaration's exact hash must match.
+  The declaration must be included as evidence. If it ships in the crate, its
+  crate-relative location and installed hash must match. A repository-root
+  declaration omitted from the published crate is allowed only at the package's
+  exact pinned repository and revision, with a root-safe source path and the
+  published VCS metadata still matching the package record.
   Both the declaration URL and official text URL remain in artifact provenance.
   This permits the explicit MPL source-header referral, not guessing from SPDX.
   URLs are evidence only; the collector never downloads them. There are at most
@@ -271,9 +274,17 @@ The September 21 regressions cover exact source-offer URL/hash/instructions,
 direct cached-archive verification, shipped and omitted repository-root
 declarations, full multi-license applicability without choosing an alternative,
 and the strict notice-packaging command. `node --test scripts/notices.test.cjs
-scripts/release.test.cjs` passed all 43 tests. The real `--inventory` collection
+scripts/release.test.cjs` passed all 44 tests. The real `--inventory` collection
 succeeded with the evidence above; strict collection exited 1 for the 11 recorded
 objc2 decisions and created no bundle notice artifact.
+
+The September 21 baseline also passed `npm test` (131 tests), `npm run build`,
+`node scripts/check-release.cjs`, `cargo test --locked -p repodeck-core` (seven
+ignored environment/manual suites), `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, the local documentation
+link check, and `git diff --check`. Browser/native application checks and installer
+lifecycle tests were not run; this change does not provide native distribution
+evidence.
 
 Earlier September 15/16 Windows checks: `node --test scripts/notices.test.cjs
 scripts/release.test.cjs` (28 passed), `npm test` (118 passed), `npm run build`,
