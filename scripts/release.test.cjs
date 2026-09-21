@@ -6,6 +6,201 @@ const path = require('node:path');
 const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { stageRelease } = require('./stage-release.cjs');
+const { spawnSync } = require('node:child_process');
+
+test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
+  const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
+  const version = require('semver').parse(config.version);
+  assert.ok(version);
+  const numeric = `${version.major}.${version.minor}.${version.patch}`;
+  assert.equal(config.bundle.macOS.bundleVersion, numeric);
+  assert.equal(config.bundle.macOS.infoPlist, 'Info.plist');
+  const plist = await fs.readFile('src-tauri/Info.plist', 'utf8');
+  assert.equal(plist.replaceAll('\r\n', '\n'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleShortVersionString</key>
+  <string>${numeric}</string>
+</dict>
+</plist>
+`);
+});
+
+test('preview policy CLI fails closed with a useful diagnostic outside a release environment', () => {
+  const result = spawnSync(process.execPath, ['scripts/check-release.cjs', '--preview-policy'], {
+    encoding: 'utf8', windowsHide: true,
+    env: { ...process.env, GITHUB_REF: '', GITHUB_SHA: '', GITHUB_REPOSITORY: '' },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unsigned preview requires|ENOENT|Unexpected release repository/);
+  assert.doesNotMatch(result.stderr, /ERR_INVALID_ARG_TYPE|circular dependency/);
+});
+
+const previewVersion = '0.2.0-preview.1';
+const previewCommit = 'a'.repeat(40);
+const targets = ['x86_64-pc-windows-msvc', 'aarch64-apple-darwin', 'x86_64-apple-darwin'];
+const previewData = () => ({
+  version: previewVersion, channel: 'unsigned-preview',
+  features: ['Inspect local repositories.'], fixes: ['Handle refresh errors.'],
+  limitations: ['Installer lifecycle checks remain pending.'],
+});
+
+test('preview notes require bounded explicit version data and safe text', () => {
+  const { validatePreviewNotes } = require('./generate-release-notes.cjs');
+  assert.deepEqual(validatePreviewNotes(previewData(), previewVersion), previewData());
+  for (const change of [
+    { version: '0.2.0' }, { channel: 'stable' }, { extra: true },
+    { features: [] }, { fixes: [''] }, { limitations: [] },
+    { features: ['x'.repeat(501)] }, { features: Array(21).fill('Feature') },
+    { features: ['[download](https://evil.example)'] }, { features: ['<details>'] },
+    { features: ['line\nbreak'] }, { features: ['hidden\u202e'] },
+  ]) assert.throws(() => validatePreviewNotes({ ...previewData(), ...change }, previewVersion));
+  assert.throws(() => validatePreviewNotes(previewData(), '../unsafe'));
+  assert.throws(() => validatePreviewNotes({ ...previewData(), version: '0.2.0' }, '0.2.0'));
+});
+
+test('preview source must be an exact merged PR commit to this repository main', () => {
+  const { validatePreviewSource } = require('./check-release.cjs');
+  const pr = { merged_at: '2026-09-15T00:00:00Z', merge_commit_sha: previewCommit,
+    base: { ref: 'main', repo: { full_name: 'pulkitchandra1997/RepoDeck' } } };
+  assert.doesNotThrow(() => validatePreviewSource(previewCommit, previewCommit, [pr]));
+  for (const prs of [[], [{ ...pr, merged_at: null }], [{ ...pr, merge_commit_sha: 'b'.repeat(40) }],
+    [{ ...pr, base: { ...pr.base, ref: 'other' } }],
+    [{ ...pr, base: { ref: 'main', repo: { full_name: 'other/RepoDeck' } } }]]) {
+    assert.throws(() => validatePreviewSource(previewCommit, previewCommit, prs), /merged PR/);
+  }
+  assert.throws(() => validatePreviewSource(previewCommit, 'b'.repeat(40), [pr]), /source/);
+  assert.throws(() => validatePreviewSource('bad', 'bad', [pr]), /SHA/);
+});
+
+test('preview preflight rejects existing drafts, published releases and API or ancestry errors', () => {
+  const { verifyPreviewSource } = require('./check-release.cjs');
+  const env = { GITHUB_REPOSITORY: 'pulkitchandra1997/RepoDeck',
+    GITHUB_REF: `refs/tags/v${previewVersion}`, GITHUB_SHA: previewCommit };
+  const pr = { merged_at: '2026-09-15', merge_commit_sha: previewCommit,
+    base: { ref: 'main', repo: { full_name: env.GITHUB_REPOSITORY } } };
+  let releases = [], failure = '', remoteSha = previewCommit;
+  const commands = [];
+  const run = (command, args) => {
+    commands.push([command, args]);
+    if (args.join(' ').includes(failure) && failure) throw new Error('authority unavailable');
+    if (command === 'git') {
+      if (args[0] === 'merge-base') return '';
+      if (args[0] === 'ls-remote') return `${remoteSha}\trefs/tags/v${previewVersion}`;
+      return previewCommit;
+    }
+    return JSON.stringify([args.at(-1).includes('/pulls?') ? [pr] : releases]);
+  };
+  assert.equal(verifyPreviewSource(previewVersion, env, run), previewCommit);
+  assert.ok(commands.some(([command, args]) => command === 'git' && args[0] === 'merge-base'));
+  for (const draft of [true, false]) {
+    releases = [{ tag_name: `v${previewVersion}`, draft }];
+    assert.throws(() => verifyPreviewSource(previewVersion, env, run), /already exists/);
+  }
+  releases = [];
+  for (failure of ['merge-base', '/pulls?', '/releases?', 'ls-remote']) {
+    assert.throws(() => verifyPreviewSource(previewVersion, env, run), /authority unavailable/);
+  }
+  failure = '';
+  remoteSha = 'b'.repeat(40);
+  assert.throws(() => verifyPreviewSource(previewVersion, env, run), /remote tag/);
+  for (const change of [{ GITHUB_REPOSITORY: 'other/repo' }, { GITHUB_REF: 'refs/heads/main' }, { GITHUB_SHA: '--bad' }]) {
+    assert.throws(() => verifyPreviewSource(previewVersion, { ...env, ...change }, run));
+  }
+  assert.throws(() => verifyPreviewSource('0.2.0', env, run), /preview/);
+});
+
+test('staging rejects linked bundle roots without following them', async () => {
+  await withPreviewAssets(async assets => {
+    const root = path.dirname(assets);
+    const link = path.join(root, 'linked-bundle');
+    await fs.symlink(path.join(root, targets[0]), link, process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(stageRelease(link, path.join(root, 'output'), previewVersion, targets[0], previewCommit), /real directory/);
+  });
+});
+
+test('release assembly rejects linked target directories and empty installers', async () => {
+  const { verifyReleaseAssets } = require('./check-release.cjs');
+  await withPreviewAssets(async assets => {
+    const directory = path.join(assets, `release-${targets[0]}`);
+    const moved = path.join(path.dirname(assets), 'moved-target');
+    await fs.rename(directory, moved);
+    await fs.symlink(moved, directory, process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(verifyReleaseAssets(assets, previewVersion, previewCommit), /directories/);
+    await fs.unlink(directory);
+    await fs.rename(moved, directory);
+    await fs.writeFile(path.join(directory, assetName(previewVersion, targets[0])), '');
+    await assert.rejects(verifyReleaseAssets(assets, previewVersion, previewCommit), /nonempty/);
+  });
+});
+
+async function withPreviewAssets(run) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repodeck-release-test-'));
+  try {
+    const assets = path.join(root, 'assets');
+    for (const target of targets) {
+      const bundle = path.join(root, target);
+      await fs.mkdir(bundle);
+      await fs.writeFile(path.join(bundle, target.includes('windows') ? 'fixture.exe' : 'fixture.dmg'), target);
+      await stageRelease(bundle, path.join(assets, `release-${target}`), previewVersion, target, previewCommit);
+    }
+    await run(assets);
+  } finally {
+    assert.equal(path.dirname(root), os.tmpdir());
+    assert.ok(path.basename(root).startsWith('repodeck-release-test-'));
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+test('release assembly verifies all targets and generates three prominent exact installer links', async () => {
+  const { verifyReleaseAssets } = require('./check-release.cjs');
+  const { generateReleaseNotes } = require('./generate-release-notes.cjs');
+  await withPreviewAssets(async assets => {
+    const manifests = await verifyReleaseAssets(assets, previewVersion, previewCommit);
+    assert.equal(manifests.length, 3);
+    const notes = generateReleaseNotes(previewData(), previewVersion, previewCommit, manifests);
+    assert.equal(notes, generateReleaseNotes(previewData(), previewVersion, previewCommit, manifests));
+    const prominent = notes.split('<details>')[0];
+    for (const target of targets) assert.ok(prominent.includes(`https://github.com/pulkitchandra1997/RepoDeck/releases/download/v${previewVersion}/${assetName(previewVersion, target)}`));
+    for (const heading of ['## Features', '## Fixes', '## Known Limitations']) assert.ok(prominent.includes(heading));
+    assert.match(notes, /unsigned/);
+    assert.match(notes, /Automatic updates are not implemented/);
+    assert.match(notes, /<summary>Source, checksums and verification<\/summary>/);
+    assert.ok(notes.includes(previewCommit));
+    assert.throws(() => generateReleaseNotes(previewData(), previewVersion, previewCommit, manifests.slice(1)));
+  });
+});
+
+test('release assembly rejects missing targets, unexpected files and altered metadata or bytes', async () => {
+  const { verifyReleaseAssets } = require('./check-release.cjs');
+  await withPreviewAssets(async assets => {
+    const verify = () => verifyReleaseAssets(assets, previewVersion, previewCommit);
+    const directory = path.join(assets, `release-${targets[0]}`);
+    const name = assetName(previewVersion, targets[0]);
+    const manifestPath = path.join(directory, `${name}.json`);
+    const original = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    for (const change of [{ commit: 'b'.repeat(40) }, { version: '0.9.0' }, { target: targets[1] },
+      { file: '../escape.exe' }, { sha256: '0'.repeat(64) }, { signing: 'signed' }, { extra: true }]) {
+      await fs.writeFile(manifestPath, JSON.stringify({ ...original, ...change }));
+      await assert.rejects(verify());
+    }
+    await fs.writeFile(manifestPath, JSON.stringify(original));
+    const checksumPath = path.join(directory, `${name}.sha256`);
+    const checksum = await fs.readFile(checksumPath);
+    await fs.writeFile(checksumPath, `${original.sha256}  ../escape.exe\n`);
+    await assert.rejects(verify(), /checksum/);
+    await fs.writeFile(checksumPath, checksum);
+    await fs.appendFile(path.join(directory, name), 'tampered');
+    await assert.rejects(verify(), /digest/);
+    await fs.writeFile(path.join(directory, name), targets[0]);
+    await fs.writeFile(path.join(directory, 'extra.exe'), 'extra');
+    await assert.rejects(verify(), /files/);
+    await fs.unlink(path.join(directory, 'extra.exe'));
+    await fs.rename(directory, `${directory}-missing`);
+    await assert.rejects(verify(), /targets/);
+  });
+});
 
 test('requires matching manifest versions and release tags', () => {
   assert.equal(validateVersions(['0.1.0', '0.1.0', '0.1.0'], 'refs/tags/v0.1.0'), '0.1.0');

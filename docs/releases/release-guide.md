@@ -14,18 +14,50 @@ Each GitHub release asset must be smaller than 2 GiB. Build Windows x64 on Windo
 
 References: https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases and https://v2.tauri.app/distribute/pipelines/github/
 
-## Version Workflow
+## Unsigned Preview Policy
 
-1. Update `package.json`, `package-lock.json` (root and root package), both Cargo package versions/Cargo.lock, and `src-tauri/tauri.conf.json` together. Run `npm run check:release` and `npm run test:release`.
-2. Merge reviewed, tested changes to `main`. Run frontend/core tests, browser checks and native release-gate tests.
-3. Create an annotated matching tag, for example `git tag -a v0.1.0 -m "RepoDeck 0.1.0 development preview"`, then `git push origin v0.1.0`. Never reuse a published tag; fixes need new versions.
-4. The tag workflow checks versions, builds with locked Cargo dependencies and creates a **draft prerelease** only after all three matrix jobs succeed. Assets have architecture-specific filenames, SHA-256 files and source-commit JSON manifests. Existing releases are not overwritten; failed/retried drafts require deliberate maintainer handling.
-5. Review and test all installers before publishing the draft. The current workflow creates unsigned development builds, not automatically published stable releases.
+The maintainer authorizes unsigned **development previews** after a reviewed PR
+and successful three-target CI. This is distinct from stable readiness approval:
+do not set `REPODECK_RELEASE_APPROVED` for previews. The tag workflow recognizes
+only `vX.Y.Z-preview.N` with an exact matching version record whose channel is
+`unsigned-preview`. Other tags keep the stable readiness gate and are also
+blocked until signing/notarization is implemented. Malformed preview tags,
+missing version data and failed GitHub API calls fail closed.
+
+This preview exception supersedes the earlier blanket tagged-release block
+described in [SECURITY.md](../../SECURITY.md) only for the explicit path above.
+It does not waive security regressions, license obligations or OS protections.
+Signing and installer lifecycle evidence remain required for stable distribution.
+
+"Reproducible" here means a repeatable, auditable process tied to a source commit,
+locked application dependencies and verified artifact digests. Hosted runner
+images, Rust stable and packaging tools can change: this is **not a promise of
+byte-identical rebuilds**. SHA-256 manifests are integrity records, not signatures
+or attestations of a safe installer. Windows can confirm downloaded DMG bytes and
+the UDIF trailer, but cannot run native `hdiutil` verification, mount the image or
+inspect the macOS bundle; those checks must run on macOS before artifact upload.
+
+## Preview Version Workflow
+
+Apple requires `CFBundleShortVersionString` to contain three numeric components.
+The pinned Tauri bundler writes its configured version literally and does not
+normalize prerelease suffixes. A preview build therefore needs an explicit numeric
+macOS bundle version such as `0.1.1`; do not assume that `0.1.1-preview.1` will be
+converted automatically. Native DMG validation compares the value actually written
+to `Info.plist` and fails before upload when it is unsupported or unexpected. The
+workflow derives only this comparison value with the SemVer parser; package,
+artifact and release versions retain the full prerelease string.
+
+1. In a separately authorized version PR, update `package.json`, `package-lock.json` (root and root package), both Cargo package versions/Cargo.lock, and `src-tauri/tauri.conf.json` together to `X.Y.Z-preview.N`. Add matching [version notes](preview-notes.md). Run `npm run check:release` and `npm run test:release`. This tooling PR does not bump a version or authorize a tag push.
+2. Review the PR and wait for required `Desktop verification` on its current revision before merging to `main`. Resolve review conversations. Automated checks prove a merged PR association, not the quality of human review; the maintainer is accountable for that review.
+3. In an explicitly authorized release session, create an annotated matching `vX.Y.Z-preview.N` tag at that PR's exact merge commit, then push the new tag. The workflow requires that source to be on `origin/main` and match a merged PR's `merge_commit_sha` in this repository with base `main`. Arbitrary branch tips, unmerged commits and mismatched tags are rejected. Never move/reuse a pushed release tag; fixes need a new version.
+4. The tag workflow reruns the complete three-target matrix, including security regressions, and requires `Desktop verification` before draft creation. It verifies exactly three target directories, each containing one expected installer, checksum and source manifest. Missing/extra targets or files, links, empty/oversized installers, bad digests, or differing source/version/signing metadata block creation. Downloaded target artifacts remain separate, preventing cross-target flattening collisions.
+5. The workflow generates prominent Windows x64/macOS ARM64/macOS Intel links and version-specific feature/fix/limitation notes, with supplementary verification details collapsed. It creates a new **draft prerelease**, never latest or automatically public. Any existing release, including a draft, blocks reruns. It neither uploads replacements nor deletes artifacts. A failed partial draft needs maintainer inspection; prefer a fresh version rather than deleting published history. Review notes and installer evidence before deliberately publishing. Record native first-launch/lifecycle gaps honestly; use only an isolated VM/account for installer tests.
 6. Enable repository release immutability where available before public release. Add all assets to the draft before publishing. See https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases.
 
 ## Stable Release Gates
 
-The filter-safety regressions now run in the default suite and again on tags. The mitigation rejects filtered comparisons and skips implicit submodule working-file comparisons; it does not sandbox hostile concurrent metadata changes. Tagged publication also requires `REPODECK_RELEASE_APPROVED=true` as a repository Actions variable, which must remain unset until the following readiness checks are complete. The prepared workflow is not evidence that a cloud release or macOS build has succeeded.
+The filter-safety regressions run in the default suite and again on all tags, including previews. The mitigation rejects filtered comparisons and skips implicit submodule working-file comparisons; it does not sandbox hostile concurrent metadata changes. Stable tags require `REPODECK_RELEASE_APPROVED=true` as a repository Actions variable, which must remain unset until the following readiness checks are complete. Stable distribution is additionally blocked in code until signing/notarization is implemented: setting the variable alone cannot release unsigned stable binaries. The prepared workflow is not evidence that a cloud release or macOS build has succeeded.
 
 - Resolve high-priority security findings. Do not represent the app as safe for untrusted local Git configurations while executable-filter behavior is unresolved.
 - Verify dependency distribution obligations and bundle notices/license texts for shipped Rust/frontend components. Root MIT is not a substitute for dependency notices.
