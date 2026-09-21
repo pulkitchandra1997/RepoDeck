@@ -22,7 +22,7 @@ An output write failure may leave a partial file, so downstream packaging MUST
 require a successful generator exit in the same build, not merely file existence.
 Do not reuse a stale artifact after a failed run.
 
-The schema-v2 UTF-8 JSON artifact contains exact names, versions, declared license
+The schema-v3 UTF-8 JSON artifact contains exact names, versions, declared license
 identifiers, target membership, original texts (including line endings/BOM),
 SHA-256 hashes and provenance. A package can also carry a versioned source offer
 whose exact crates.io archive URL and SHA-256 are verified against Cargo's cached
@@ -34,18 +34,23 @@ Identical inputs produce identical bytes. Conflicting evidence for the same
 ecosystem/name/version is an error. `npm run test:notices` runs in CI and
 `npm run notices -- OUTPUT.json` invokes strict collection.
 
-`--inventory` is for investigation only: it writes all reachable packages and
-aggregated unresolved Cargo license-text/review entries after visiting all three
-targets. It exits zero when the inventory is successfully written, even when
-`collectionComplete` is false. Such output MUST NOT be bundled. Malformed graphs,
+`--inventory` writes a complete review candidate after visiting all three targets.
+It exits zero when the evidence was collected successfully, including when a
+separate distribution review remains pending. `collectionComplete` reports only
+whether every reachable dependency has collected license text; `unresolved`
+contains missing-text failures. `releaseGateComplete` additionally requires an
+empty `pendingReview` list. Candidate output with `releaseGateComplete: false`
+MUST NOT be bundled, but it can be inspected as a full notices artifact without
+claiming that distribution was forbidden or approved. Malformed graphs,
 unsupported declarations, invalid provenance, unreadable inputs and bounds errors
-still abort without an artifact. Strict collection rejects any unresolved entry.
-`collectionComplete: true` means the collector found texts and no recorded
-blockers; it is not a semantic license audit or approval to distribute.
-Cargo records separately expose `licenseTextAvailable`: at least one collected
-license text was found. This is a presence indicator, not proof that every
-component/alternative is covered. A record can have available texts and still
-carry an unresolved distribution decision.
+still abort without an artifact. Strict collection and `--bundle` reject both
+unresolved notices and pending distribution review.
+
+Cargo records expose `licenseTextAvailable` and, where applicable,
+`reviewPending`. The former is a text-presence indicator; the latter records a
+question outside notice collection. Neither is a semantic license audit. This
+separation prevents a complete set of declared-license texts from being reported
+as missing merely because package-content or distribution review remains open.
 
 ## Future Notice Packaging
 
@@ -68,8 +73,8 @@ the same invocation; file existence alone is never a gate. Do not use a direct
 `tauri bundle` invocation to bypass the pre-build collection step.
 
 The `package:notices` command selects this overlay. It remains intentionally
-opt-in while the collection is blocked. The default development/preview build and
-CI do not yet bundle complete dependency notices.
+opt-in while distribution review is pending. The default development/preview
+build and CI do not yet bundle the review candidate.
 Enabling this overlay for every future release and inspecting the resulting NSIS
 and both DMG resources remain acceptance work after review. The existing preview
 limitation remains disclosed; no current installer is certified by this change.
@@ -170,7 +175,7 @@ The fallback manifest records source-text/provenance inspections by Codex on
 2026-09-15, 2026-09-16 and 2026-09-21. `text-reviewed` means that inspection only;
 it does not represent independent human review or legal clearance. Twenty-two
 GitHub source files at thirteen commits and three Microsoft SDK archive texts
-support 22 exact crate records, including explicitly blocked evidence.
+support 22 exact crate records, including evidence with pending review.
 
 - `webview2-com@0.38.2`, `webview2-com-macros@0.8.1`, and
   `webview2-com-sys@0.38.2`: repository-root MIT text with Bill Avery's copyright.
@@ -194,9 +199,11 @@ support 22 exact crate records, including explicitly blocked evidence.
   Zlib and Apache-2.0 texts to fix upstream issue #826. MIT-only crates collect
   the MIT text; declarations of
   `Zlib OR Apache-2.0 OR MIT` retain all three texts without selecting an
-  alternative. This completes notice collection for the current declared
-  licenses. The records remain blocked on the separate SDK provenance and
-  package-content review described below.
+  alternative. The later files are recorded as the source of full terms, not
+  represented as files shipped in the older crates. Together with each exact
+  published-revision declaration, this completes text collection for the current
+  declared licenses without inventing a licensing choice. The records retain a
+  separate package-content/distribution review described below.
 - `selectors@0.36.1`: its pinned `selectors/lib.rs` explicitly refers to
   `https://mozilla.org/MPL/2.0/`. Mozilla's official plaintext download matched
   `mozilla/bedrock` commit `a15178c3c7c976c67b3641af77cae0b66093a175`,
@@ -220,10 +227,11 @@ This is resolution evidence, not native build or installation evidence.
 The real inventory now finishes: 299 distinct package/version records (294 Cargo
 and five npm). Target membership is 268 third-party Cargo packages for Windows,
 262 for each macOS architecture, and five npm packages on every target.
-The inventory is incomplete for distribution: 11 explicit blockers remain.
+The schema-v3 candidate reports `collectionComplete: true`, zero `unresolved`
+notice entries, 11 `pendingReview` entries, and `releaseGateComplete: false`.
 For the lockfiles inherited from `30056dd` and the branch after merging
-`origin/main` at `1978fed`, the updated inventory is 3,014,606 bytes with SHA-256
-`8d2accc1117880279f2dd02034fb5e4e5126d639d8127ef4ac5b7c78c6cdb8dc`.
+`origin/main` at `1978fed`, the updated inventory is 3,019,713 bytes with SHA-256
+`0ec2592563ef1deac1a625b0821a56da25b6e51932fda2612ae0aec7cc6f70ff`.
 All individual text hashes were recomputed and verified. Earlier September 15 and
 16 artifacts are historical evidence, not the current collection.
 
@@ -244,17 +252,49 @@ NOTICE and nuspec after byte-verifying all nine loader files. Actual resource
 inspection and the chosen [Runtime deployment](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
 remain pending; neither collector result is legal clearance.
 
-1. `block2`, `dispatch2`, `objc2`, `objc2-encode`, `objc2-exception-helper`,
-   `objc2-foundation`, `objc2-app-kit`, `objc2-core-foundation`,
-   `objc2-core-graphics`, `objc2-io-surface`, and `objc2-web-kit`: all texts for
-   their current declared licenses are collected. The
-   [pinned upstream declaration](https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md)
-   says that four crate families are currently MIT-licensed and the others are
-   MIT/Zlib/Apache-2.0 at the recipient's option. Its reference to
-   [issue #23](https://github.com/madsmtm/objc2/issues/23) concerns a prospective
-   move from MIT-only licensing to the three-license choice and a copyright-notice
-   change. Closing that issue is not a prerequisite to use the current declared
-   licenses, and this release gate does not treat it as one.
+The 11 pending records are `block2`, `dispatch2`, `objc2`, `objc2-encode`,
+`objc2-exception-helper`, `objc2-foundation`, `objc2-app-kit`,
+`objc2-core-foundation`, `objc2-core-graphics`, `objc2-io-surface`, and
+`objc2-web-kit`. All texts for their declared licenses are collected. The
+[pinned upstream declaration](https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md)
+says that `block2`, `objc2`, `objc2-foundation`, and `objc2-encode` are MIT;
+the other seven are `Zlib OR Apache-2.0 OR MIT` at the recipient's option. The
+candidate retains all three alternatives for those seven and explicitly makes no
+selection. Its reference to [issue #23](https://github.com/madsmtm/objc2/issues/23)
+concerns prospective relicensing and a copyright-notice change. Closing that
+issue is not a prerequisite to use the declared licenses, and this gate does not
+treat it as one.
+
+### Exact Published-Package Evidence
+
+The locally cached `.crate` archives byte-match the SHA-256 checksums in
+`Cargo.lock`. Their `.cargo_vcs_info.json` files bind each archive to these
+published revisions; no historical reconstruction is required for collection:
+
+| Package | Archive SHA-256 | Published revision |
+| --- | --- | --- |
+| `block2@0.6.2` | `cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5` | `b4167b582b2f75f9a1be75495c41b765344fd03c` |
+| `dispatch2@0.3.1` | `1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38` | `8852b424193ca41602281b3d7540d7c8ed51e49a` |
+| `objc2@0.6.4` | `3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f` | `8852b424193ca41602281b3d7540d7c8ed51e49a` |
+| `objc2-app-kit@0.3.2` | `d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c` | `7b1abfd750a2cacaea71d6a56ecfb83cb7de560b` |
+| `objc2-core-foundation@0.3.2` | `2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536` | `7b1abfd750a2cacaea71d6a56ecfb83cb7de560b` |
+| `objc2-core-graphics@0.3.2` | `e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807` | `7b1abfd750a2cacaea71d6a56ecfb83cb7de560b` |
+| `objc2-encode@4.1.0` | `ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33` | `8d214f5477365ffcbcbb7de058c86ed9a518efb7` |
+| `objc2-exception-helper@0.1.1` | `c7a1c5fbb72d7735b076bb47b578523aedc40f3c439bea6dfd595c089d79d98a` | `8d214f5477365ffcbcbb7de058c86ed9a518efb7` |
+| `objc2-foundation@0.3.2` | `e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272` | `7b1abfd750a2cacaea71d6a56ecfb83cb7de560b` |
+| `objc2-io-surface@0.3.2` | `180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d` | `7b1abfd750a2cacaea71d6a56ecfb83cb7de560b` |
+| `objc2-web-kit@0.3.2` | `b2e5aaab980c433cf470df9d7af96a7b46a9d892d521a2cbbb2f8a4c16751e7f` | `7b1abfd750a2cacaea71d6a56ecfb83cb7de560b` |
+
+None of the 11 archives contains a `LICENSE`, `LICENCE`, `COPYING`, `NOTICE`, or
+`COPYRIGHT` file. The four pinned repository revisions carry the same root
+`LICENSE.md` bytes (SHA-256
+`7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54`),
+which is why the collector records that exact declaration plus immutable full
+term sources. Inspection found generated Rust interfaces, Rust/C/Objective-C
+implementation files, Cargo metadata, and documentation; it found no standalone
+Apple SDK headers, libraries, `.tbd` linker stubs, or Apple copyright notices.
+That is package-content evidence, not a conclusion about whether generated API
+declarations or copied header documentation are protectable or distributable.
 
 ### objc2 Review Boundary
 
@@ -267,24 +307,76 @@ distributed; and restricts copying, redistribution, modification, and derivative
 works of Apple Software in Sections 2.4, 2.5, and 2.7. Those clauses do not by
 themselves establish the contents or generation history of these pinned crates.
 
-The exact remaining factual record is:
+The published source identifies the relevant transformation more narrowly than
+the earlier gate did. The pinned objc2
+[generated-interface documentation](https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/crates/objc2/src/topics/about_generated/README.md)
+states that the framework crates are mostly generated interfaces and contain some
+documentation from headers. Their Rust declarations link to system frameworks
+such as `AppKit`, `Foundation`, `CoreFoundation`, `CoreGraphics`, `IOSurface`,
+and `WebKit`. The source crates are build inputs; neither Tauri configuration
+copies Cargo registry source nor the SDK into the application. The normal bundle
+has no configured resources. The notice overlay adds only
+`THIRD-PARTY-NOTICES.json`.
 
-1. Identify the Apple SDK and Xcode versions, generator versions, SDK inputs,
-   and the agreement version accompanying those tools for each pinned published
-   crate revision.
-2. Map generated crate files to those inputs and identify what Apple-provided
-   text, code, or data, if any, is retained in the published crate rather than
-   only represented as Rust interface declarations.
-3. Inspect the final RepoDeck application bundle and resources to determine
-   whether they contain Apple SDK files or content, rather than only references
-   needed to link to system frameworks.
+Current-head workflow run
+[35584015219](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/35584015219)
+built and mounted both macOS DMGs natively without executing the application.
+The arm64 DMG SHA-256 is
+`d4df50be3f59be71d5d7d07364e179e4ab5b4fbed2f6fd4b60f906744a421a22`;
+the x86_64 DMG SHA-256 is
+`74807a703646b6f73352a1b62934dac44da15325fe72fc582fbd3e59d60e8828`.
+Both contained a thin Mach-O application with the expected architecture, and
+`codesign --display --verbose=4` reported zero sealed resource files. The uploaded
+artifacts contain the two DMGs and Tauri DMG support files, but the workflow
+deletes the intermediate `.app` and does not retain a recursive application-file
+or `otool -L` inventory. Therefore this is strong evidence against separately
+bundled crate source or SDK resources, but it is not a complete binary-content
+record.
 
-Strict collection remains blocked until that evidence is reviewed. This records
-neither a conclusion that distribution is prohibited nor legal clearance to
-distribute; any interpretation of the agreement remains outside the collector.
+The exact remaining factual uncertainty is now bounded to two questions:
 
-Strict collection and the notice packaging pre-build step deliberately fail.
-No distributable notice artifact is claimed. Issue #17 is **not closed**.
+1. Does the compiled RepoDeck executable retain Apple-provided expression from
+   the generated bindings beyond interface names, signatures, constants, and the
+   small amount of header-derived documentation observed in the published source?
+2. Does a native recursive file inventory and Mach-O import listing of the exact
+   release-candidate `.app` show anything beyond RepoDeck files and references to
+   macOS system frameworks?
+
+Question 2 is directly answerable by retaining `find` and `otool -L` output from
+the already-native CI validation; it does not require running an installer or the
+application. Question 1 is the narrow maintainer/legal classification decision.
+The collector does not require otherwise unavailable historical generator logs
+for every wrapper unless review identifies a specific retained item whose source
+must be traced. Upstream issue #23 supplies no answer to either question.
+
+Strict collection and the notice packaging pre-build step deliberately continue
+to fail because `releaseGateComplete` is false. The schema-v3 inventory is a full
+notices candidate with explicit ambiguity, not a distributable artifact or legal
+clearance. Issue #17 is **not closed**.
+
+### Expedited Maintainer Decision
+
+The minimally sufficient release package-content record is:
+
+1. Preserve the schema-v3 candidate containing all 299 dependency records, the
+   exact MIT terms for the four MIT declarations, all three declared alternatives
+   for the seven `OR` declarations without selecting one, and every pinned
+   declaration/provenance hash.
+2. Add one native CI evidence file per macOS architecture containing a sorted
+   recursive `.app` file inventory and `otool -L` output for every Mach-O file;
+   bind it to the DMG SHA-256. This is proposed follow-up work in the workflow
+   owned by the separate macOS change, not part of this branch.
+3. Ask the maintainer or qualified reviewer only whether the observed generated
+   interfaces/documentation and compiled references can be treated as an
+   application built against Apple interfaces under the applicable agreement, or
+   whether a specific additional notice, permission, or source exclusion is
+   required. Record the exact requested item if the answer is no.
+
+If that review accepts the bounded evidence, change the 11 manifest records from
+`blocked` to `text-reviewed`, run strict collection, enable the notice overlay in
+the release workflow, and inspect the notice resource in both DMGs. If review
+requires more, the blocker must name the specific file/material and requested
+evidence; “recover all historical provenance” is not an actionable gate.
 
 The node:test fixtures cover production/scoped/nested/peer resolution,
 development exclusion, target filtering and union, declared files, standard

@@ -298,12 +298,16 @@ test('blocked upstream terms cannot be cleared by a LICENSE filename; inventory 
   f.entry.reason = 'Fixture upstream explicitly leaves derived SDK terms unresolved.';
   await f.saveFallback();
   await f.write('crate/LICENSE', 'Fixture local license does not resolve SDK terms');
-  await assert.rejects(f.run(), /unresolved.*3 target/i);
+  await assert.rejects(f.run(), /pending distribution review.*3 target/i);
   const doc = JSON.parse(await f.run({ inventory: true }));
-  assert.equal(doc.collectionComplete, false);
-  assert.equal(doc.unresolved.length, 1);
-  assert.deepEqual(doc.unresolved[0].targets, [...TARGETS].sort());
-  assert.match(doc.unresolved[0].reason, /SDK terms/);
+  assert.equal(doc.schemaVersion, 3);
+  assert.equal(doc.collectionComplete, true);
+  assert.equal(doc.releaseGateComplete, false);
+  assert.deepEqual(doc.unresolved, []);
+  assert.equal(doc.pendingReview.length, 1);
+  assert.deepEqual(doc.pendingReview[0].targets, [...TARGETS].sort());
+  assert.match(doc.pendingReview[0].reason, /SDK terms/);
+  assert.match(doc.packages.find(p => p.name === 'windows-crate').reviewPending, /SDK terms/);
   assert.ok(doc.packages.find(p => p.name === 'windows-crate').texts.some(text => text.sha256 === f.source.sha256));
 });
 
@@ -312,7 +316,9 @@ test('inventory retains missing-license packages and never mistakes an incomplet
   await fs.rm(path.join(f.root, 'crate/LICENSE-MIT'));
   const doc = JSON.parse(await generateNotices({ root: f.root, metadata: f.metadata, inventory: true }));
   assert.equal(doc.collectionComplete, false);
+  assert.equal(doc.releaseGateComplete, false);
   assert.equal(doc.unresolved.length, 2);
+  assert.deepEqual(doc.pendingReview, []);
   assert.equal(doc.packages.length, 4);
   await assert.rejects(generateNotices({ root: f.root, metadata: () => null, inventory: true }), /Cargo metadata/);
 });
@@ -323,12 +329,14 @@ test('bundle command refuses unresolved evidence and stale output; inventory out
   const options = { root: f.root, metadata: f.metadata };
   f.entry.status = 'blocked';
   await f.saveFallback();
-  await assert.rejects(runCli(['--bundle'], options), /unresolved/i);
+  await assert.rejects(runCli(['--bundle'], options), /pending distribution review/i);
   await assert.rejects(fs.access(output));
   await runCli(['--inventory', 'inventory.json'], options);
-  assert.equal(JSON.parse(await fs.readFile(path.join(f.root, 'inventory.json'))).collectionComplete, false);
+  const inventory = JSON.parse(await fs.readFile(path.join(f.root, 'inventory.json')));
+  assert.equal(inventory.collectionComplete, true);
+  assert.equal(inventory.releaseGateComplete, false);
   await f.write('.tools/notices/THIRD-PARTY-NOTICES.json', 'stale');
-  await assert.rejects(runCli(['--bundle'], options), /unresolved/i);
+  await assert.rejects(runCli(['--bundle'], options), /pending distribution review/i);
   assert.equal(await fs.readFile(output, 'utf8'), 'stale');
   f.entry.status = 'text-reviewed';
   await f.saveFallback();
@@ -405,11 +413,13 @@ test('checked-in upstream evidence validates offline and retains every explicit 
     packages: [{ id: 'app', name: 'repodeck-desktop' }, ...packages],
     resolve: { nodes: [{ id: 'app', deps: packages.map(pkg => ({ pkg: pkg.id, dep_kinds: [{ kind: null }] })) }, ...nodes] } });
   const doc = JSON.parse(await generateNotices({ root: f.root, metadata, inventory: true }));
-  assert.equal(doc.collectionComplete, false);
+  assert.equal(doc.collectionComplete, true);
+  assert.equal(doc.releaseGateComplete, false);
   const objcBlockers = ['block2', 'dispatch2', 'objc2', 'objc2-app-kit', 'objc2-core-foundation',
     'objc2-core-graphics', 'objc2-encode', 'objc2-exception-helper', 'objc2-foundation',
     'objc2-io-surface', 'objc2-web-kit'];
-  assert.deepEqual(doc.unresolved.map(pkg => pkg.name).sort(), objcBlockers.sort());
+  assert.deepEqual(doc.unresolved, []);
+  assert.deepEqual(doc.pendingReview.map(pkg => pkg.name).sort(), objcBlockers.sort());
   const selectors = doc.packages.find(pkg => pkg.name === 'selectors');
   assert.deepEqual(selectors.sourceOffer, manifest.packages.find(entry => entry.name === 'selectors').sourceOffer);
   assert.ok(!selectors.unresolved);
@@ -420,11 +430,13 @@ test('checked-in upstream evidence validates offline and retains every explicit 
       text.provenance.applicability).map(text => text.file).sort();
     assert.deepEqual(files, pkg.license === 'MIT' ? ['LICENSE-MIT.txt'] :
       ['LICENSE-APACHE.txt', 'LICENSE-MIT.txt', 'LICENSE-ZLIB.txt']);
-    assert.match(pkg.unresolved, /Issue #23 concerns prospective relicensing only/i);
-    assert.match(pkg.unresolved, /not a prerequisite for the current declared licenses/i);
-    assert.match(pkg.unresolved, /exact SDK inputs/i);
-    assert.match(pkg.unresolved, /final application bundle/i);
-    assert.doesNotMatch(pkg.unresolved, /permissions outstanding|prohibited|legal\/maintainer/i);
+    assert.match(pkg.reviewPending, /Issue #23 concerns prospective relicensing only/i);
+    assert.match(pkg.reviewPending, /not a prerequisite for the current declared licenses/i);
+    assert.match(pkg.reviewPending, /generated Rust interfaces/i);
+    assert.match(pkg.reviewPending, /final macOS bundle file\/import inventory/i);
+    assert.match(pkg.reviewPending, /historical generator provenance is not a collector prerequisite/i);
+    assert.doesNotMatch(pkg.reviewPending, /must establish the exact SDK inputs/i);
+    assert.doesNotMatch(pkg.reviewPending, /permissions outstanding|prohibited|legal\/maintainer/i);
   }
   const actualSources = new Set(doc.packages.flatMap(pkg => pkg.texts).filter(text => text.provenance.kind === 'pinned-upstream').map(text => `${text.provenance.url}:${text.sha256}`));
   assert.equal(actualSources.size, manifest.sources.length);
@@ -465,13 +477,14 @@ test('explicit pinned source reference makes external terms available without cl
   const doc = JSON.parse(await f.run({ inventory: true }));
   const pkg = doc.packages.find(pkg => pkg.name === f.entry.name);
   assert.equal(pkg.licenseTextAvailable, true);
-  assert.equal(doc.collectionComplete, false);
-  assert.match(pkg.unresolved, /delivery decision/);
+  assert.equal(doc.collectionComplete, true);
+  assert.equal(doc.releaseGateComplete, false);
+  assert.match(pkg.reviewPending, /delivery decision/);
   const text = pkg.texts.find(text => text.provenance.repository === f.source.repository);
   assert.equal(text.sha256, f.source.sha256);
   assert.equal(text.provenance.applicability.url, f.entry.linkedTerms[0].url);
   assert.equal(text.provenance.applicability.declarationSha256, f.manifest.sources[1].sha256);
-  await assert.rejects(f.run(), /unresolved/i);
+  await assert.rejects(f.run(), /pending distribution review/i);
 });
 
 test('external terms require a bound same-package declaration and an explicit URL', async t => {
@@ -589,8 +602,10 @@ test('SDK supplemental texts require matching crate binaries and remain blocked 
   assert.equal(texts.length, 3);
   assert.equal(texts[0].provenance.archiveSha256, sdk.archiveSha256);
   assert.equal(texts[0].provenance.matchedFiles.length, 9);
-  assert.equal(doc.collectionComplete, false);
-  await assert.rejects(f.run(), /unresolved/i);
+  assert.equal(doc.collectionComplete, true);
+  assert.equal(doc.releaseGateComplete, false);
+  assert.equal(doc.pendingReview.length, 1);
+  await assert.rejects(f.run(), /pending distribution review/i);
   for (const [object, key, value] of [[sdk.crate, 'version', '99.0.0'],
     [sdk.matchedFiles[0], 'bytes', 16 * 1024 * 1024 + 1],
     [sdk, 'matchedFiles', sdk.matchedFiles.slice(1)], [sdk, 'status', 'approved']]) {

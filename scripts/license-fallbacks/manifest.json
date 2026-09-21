@@ -200,7 +200,7 @@
       "revision": "b4167b582b2f75f9a1be75495c41b765344fd03c",
       "pathInVcs": "crates/block2",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         14,
         19
@@ -237,7 +237,7 @@
       "revision": "8852b424193ca41602281b3d7540d7c8ed51e49a",
       "pathInVcs": "crates/dispatch2",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         13,
         19,
@@ -276,7 +276,7 @@
       "revision": "8852b424193ca41602281b3d7540d7c8ed51e49a",
       "pathInVcs": "crates/objc2",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         13,
         19
@@ -299,7 +299,7 @@
       "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "pathInVcs": "framework-crates/objc2-app-kit",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         15,
         19,
@@ -338,7 +338,7 @@
       "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "pathInVcs": "framework-crates/objc2-core-foundation",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         15,
         19,
@@ -377,7 +377,7 @@
       "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "pathInVcs": "framework-crates/objc2-core-graphics",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         15,
         19,
@@ -416,7 +416,7 @@
       "revision": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
       "pathInVcs": "crates/objc2-encode",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         16,
         19
@@ -439,7 +439,7 @@
       "revision": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
       "pathInVcs": "crates/objc2-exception-helper",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         16,
         19,
@@ -478,7 +478,7 @@
       "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "pathInVcs": "framework-crates/objc2-foundation",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         15,
         19
@@ -501,7 +501,7 @@
       "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "pathInVcs": "framework-crates/objc2-io-surface",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         15,
         19,
@@ -540,7 +540,7 @@
       "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
       "pathInVcs": "framework-crates/objc2-web-kit",
       "status": "blocked",
-      "reason": "Applicable upstream license texts are collected. The pinned LICENSE.md separately states that the crates are derived from Apple SDKs. Pending review must establish the exact SDK inputs, what Apple-provided material is retained in each published crate, and whether the final application bundle contains SDK material rather than only references needed to link to system frameworks. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
+      "reason": "Applicable upstream license texts are collected. The published crate sources contain generated Rust interfaces and some documentation derived from Apple SDK headers; package inspection found no standalone SDK headers, libraries, linker stubs, or Apple copyright notices. Pending review is limited to whether that retained generated material and the compiled application require treatment beyond the collected notices, plus a final macOS bundle file/import inventory. Exact historical generator provenance is not a collector prerequisite unless review identifies a specific retained item that requires it. Issue #23 concerns prospective relicensing only and is not a prerequisite for the current declared licenses.",
       "sources": [
         15,
         19,

@@ -280,7 +280,7 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
   const directory = path.dirname(pkg.manifest_path);
   const local = await texts(directory, pkg.license_file, label, privateRoots, budget, true);
   const fallback = fallbacks.get(identity(pkg.name, pkg.version));
-  let reason;
+  let reviewPending;
   if (fallback) {
     requireNotice(pkg.source === 'registry+https://github.com/rust-lang/crates.io-index' && pkg.repository === fallback.repository && pkg.license === fallback.license, `${label}: fallback package identity mismatch`);
     const vcsFile = path.join(await fs.realpath(directory), '.cargo_vcs_info.json');
@@ -314,14 +314,15 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
     if (fallback.sourceOffer) {
       await verifySourceOfferArchive(directory, fallback, fallback.sourceOffer);
     }
-    if (fallback.status === 'blocked') reason = fallback.reason;
+    if (fallback.status === 'blocked') reviewPending = fallback.reason;
   }
   const hasLicense = local.some(item => item.provenance.kind === 'package'
     ? isLicenseFile(item.file) || item.file === pkg.license_file : item.provenance.role === 'license');
-  if (!hasLicense && !reason) reason = 'Missing license text; no reviewed pinned upstream fallback';
+  const unresolved = hasLicense ? undefined : 'Missing license text; no reviewed pinned upstream fallback';
   requireNotice(local.reduce((sum, item) => sum + Buffer.byteLength(item.text), 0) <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
   return { texts: local, licenseTextAvailable: hasLicense,
-    ...(fallback?.sourceOffer ? { sourceOffer: fallback.sourceOffer } : {}), ...(reason ? { unresolved: reason } : {}) };
+    ...(fallback?.sourceOffer ? { sourceOffer: fallback.sourceOffer } : {}),
+    ...(unresolved ? { unresolved } : {}), ...(reviewPending ? { reviewPending } : {}) };
 }
 
 async function npmPackages(root, budget, privateRoots) {
@@ -442,6 +443,7 @@ async function generateNotices({ root = process.cwd(), metadata, exec = promisif
       const previous = merged.get(key);
       if (previous) {
         requireNotice(previous.license === record.license && previous.unresolved === record.unresolved &&
+          previous.reviewPending === record.reviewPending &&
           JSON.stringify(previous.texts) === JSON.stringify(record.texts) &&
           JSON.stringify(previous.sourceOffer) === JSON.stringify(record.sourceOffer), `${key}: conflicting license evidence`);
         previous.targets = sorted(new Set([...previous.targets, ...record.targets]));
@@ -449,10 +451,16 @@ async function generateNotices({ root = process.cwd(), metadata, exec = promisif
     }
     const packages = sorted(merged.keys()).map(key => merged.get(key));
     const unresolved = packages.filter(pkg => pkg.unresolved).map(pkg => ({ ecosystem: pkg.ecosystem, name: pkg.name, version: pkg.version, targets: pkg.targets, reason: pkg.unresolved }));
-    requireNotice(inventory || unresolved.length === 0, `Unresolved dependency notices after all 3 target inventories: ${unresolved.map(pkg => `${pkg.name}@${pkg.version}: ${pkg.reason}`).join('; ')}`);
-    const output = JSON.stringify({ schemaVersion: 2, collectionComplete: unresolved.length === 0, targets: TARGETS,
-      review: 'Collected dependency declarations and source texts; not legal clearance. Incomplete inventories MUST NOT be bundled. Review distribution obligations, bundled/native components and build feature coverage before release.',
-      unresolved, packages }, null, 2) + '\n';
+    const pendingReview = packages.filter(pkg => pkg.reviewPending).map(pkg => ({ ecosystem: pkg.ecosystem, name: pkg.name, version: pkg.version, targets: pkg.targets, reason: pkg.reviewPending }));
+    const collectionComplete = unresolved.length === 0;
+    const releaseGateComplete = collectionComplete && pendingReview.length === 0;
+    const failures = [];
+    if (unresolved.length) failures.push(`Unresolved dependency notices after all 3 target inventories: ${unresolved.map(pkg => `${pkg.name}@${pkg.version}: ${pkg.reason}`).join('; ')}`);
+    if (pendingReview.length) failures.push(`Pending distribution review after all 3 target inventories: ${pendingReview.map(pkg => `${pkg.name}@${pkg.version}: ${pkg.reason}`).join('; ')}`);
+    requireNotice(inventory || releaseGateComplete, failures.join(' '));
+    const output = JSON.stringify({ schemaVersion: 3, collectionComplete, releaseGateComplete, targets: TARGETS,
+      review: 'Collected dependency declarations and source texts; not legal clearance. collectionComplete only reports notice-text availability. releaseGateComplete must be true before bundling. Review pending distribution questions, bundled/native components and build feature coverage before release.',
+      unresolved, pendingReview, packages }, null, 2) + '\n';
     requireNotice(Buffer.byteLength(output) <= LIMIT, 'Artifact size limit exceeded');
     return output;
   } catch (error) {
