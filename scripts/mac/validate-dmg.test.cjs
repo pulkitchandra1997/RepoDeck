@@ -119,6 +119,7 @@ test('validates a DMG with bounded native commands and detaches the exact mounte
     const dmg = path.resolve(bundleDirectory, 'RepoDeck_0.1.0_macos_arm64.dmg');
     const attach = fixture.calls.find(call => call.command === 'hdiutil' && call.args[0] === 'attach');
     const mountPoint = attach.args[attach.args.indexOf('-mountpoint') + 1];
+    assert.equal(attach.input, 'Y\n');
     const app = path.join(mountPoint, 'RepoDeck.app');
     const executable = path.join(app, 'Contents', 'MacOS', 'repodeck-desktop');
     assert.deepEqual(fixture.calls.map(({ command, args }) => [command, args]), [
@@ -126,7 +127,7 @@ test('validates a DMG with bounded native commands and detaches the exact mounte
       ['uname', ['-m']],
       ['hdiutil', ['imageinfo', dmg]],
       ['hdiutil', ['verify', dmg]],
-      ['hdiutil', ['attach', '-readonly', '-nobrowse', '-acceptlicense', '-plist', '-mountpoint', mountPoint, dmg]],
+      ['hdiutil', ['attach', '-readonly', '-nobrowse', '-plist', '-mountpoint', mountPoint, dmg]],
       ['plutil', ['-convert', 'json', '-o', '-', '-']],
       ['plutil', ['-convert', 'json', '-o', '-', path.join(app, 'Contents', 'Info.plist')]],
       ['lipo', ['-archs', executable]],

@@ -180,7 +180,10 @@ async function validateDmgDirectory(options, dependencies = {}) {
 
   try {
     attachAttempted = true;
-    const attach = run('hdiutil', ['attach', '-readonly', '-nobrowse', '-acceptlicense', '-plist', '-mountpoint', mountPoint, dmg], { allowFailure: true });
+    const attach = run('hdiutil', ['attach', '-readonly', '-nobrowse', '-plist', '-mountpoint', mountPoint, dmg], {
+      allowFailure: true,
+      input: 'Y\n',
+    });
     if (attach.status !== 0) throw new Error(`hdiutil attach failed with status ${attach.status}`);
     const attachJson = run('plutil', ['-convert', 'json', '-o', '-', '-'], { input: attach.stdout }).stdout;
     mountedDevice = await exactMountedDevice(parseJsonOutput(attachJson, 'hdiutil attach metadata'), mountPoint);
