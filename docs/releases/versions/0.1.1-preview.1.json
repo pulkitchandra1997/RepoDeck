@@ -1,0 +1,16 @@
+{
+  "version": "0.1.1-preview.1",
+  "channel": "unsigned-preview",
+  "features": [
+    "Versioned development installers for Windows x64, macOS Apple Silicon and macOS Intel."
+  ],
+  "fixes": [
+    "Whitespace-only and padded searches now use consistent matching and empty-result messages."
+  ],
+  "limitations": [
+    "Unsigned development preview. macOS builds are not notarized and operating-system security checks may block launch.",
+    "Native macOS first-launch and installer lifecycle testing remain pending. Image validation does not certify application behavior.",
+    "Git is required for repository inspection. No automatic updater is provided.",
+    "Third-party dependency notice review remains incomplete; this preview is not stable release approval."
+  ]
+}
