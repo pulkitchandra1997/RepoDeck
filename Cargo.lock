@@ -2658,12 +2658,14 @@ name = "repodeck-core"
 version = "0.1.1-preview.3"
 dependencies = [
  "dunce",
+ "libc",
  "notify-debouncer-mini",
  "serde",
  "serde_json",
  "tempfile",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
