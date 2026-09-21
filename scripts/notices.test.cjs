@@ -467,6 +467,36 @@ test('changed or linked installed declaration cannot justify external license te
   await assert.rejects(f.run({ inventory: true }), /declaration.*regular/i);
 });
 
+test('source offer is retained only for the exact Cargo registry archive and checksum', async t => {
+  const f = await fallbackFixture(t);
+  const checksum = 'd'.repeat(64);
+  const url = 'https://static.crates.io/crates/windows-crate/windows-crate-2.0.0.crate';
+  const instructions = `Corresponding source for the unmodified windows-crate 2.0.0 package is available at ${url}. Verify the downloaded archive with SHA-256 ${checksum}.`;
+  f.entry.sourceOffer = { url, sha256: checksum, instructions };
+  f.entry.status = 'text-reviewed';
+  const metadata = target => {
+    const value = f.metadata(target);
+    value.packages[1].checksum = checksum;
+    return value;
+  };
+  await f.saveFallback();
+  const doc = JSON.parse(await generateNotices({ root: f.root, metadata }));
+  assert.equal(doc.collectionComplete, true);
+  assert.deepEqual(doc.packages.find(pkg => pkg.name === f.entry.name).sourceOffer,
+    { url, sha256: checksum, instructions });
+
+  for (const [field, value] of [['sha256', 'e'.repeat(64)],
+    ['url', 'https://static.crates.io/crates/windows-crate/other-2.0.0.crate'],
+    ['url', 'https://user@example.test/windows-crate-2.0.0.crate'],
+    ['url', `${url}#fragment`], ['instructions', ''], ['instructions', 'x'.repeat(4097)]]) {
+    const previous = f.entry.sourceOffer[field];
+    f.entry.sourceOffer[field] = value;
+    await f.saveFallback();
+    await assert.rejects(generateNotices({ root: f.root, metadata }), /source offer/i);
+    f.entry.sourceOffer[field] = previous;
+  }
+});
+
 test('SDK supplemental texts require matching crate binaries and remain blocked for distribution', async t => {
   const f = await fallbackFixture(t);
   const sdk = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/webview2-sdk.json')));

@@ -220,11 +220,23 @@ async function loadFallbacks(root, budget, privateRoots) {
       return { ...source, applicability: link ? { url: link.url, textUrl: link.textUrl, packageFile: link.packageFile,
         declarationUrl: sourceUrl(link.declaration), declarationSha256: link.declaration.sha256 } : undefined };
     });
+    let sourceOffer;
+    if (entry.sourceOffer !== undefined) {
+      const expectedUrl = `https://static.crates.io/crates/${entry.name}/${entry.name}-${entry.version}.crate`;
+      sourceOffer = entry.sourceOffer;
+      requireNotice(httpsUrl(sourceOffer.url) && sourceOffer.url === expectedUrl &&
+        typeof sourceOffer.sha256 === 'string' && /^[a-f0-9]{64}$/.test(sourceOffer.sha256) &&
+        typeof sourceOffer.instructions === 'string' && sourceOffer.instructions.trim() &&
+        sourceOffer.instructions.length <= 4096 && referencesUrl(sourceOffer.instructions, sourceOffer.url) &&
+        sourceOffer.instructions.includes(sourceOffer.sha256), 'Invalid source offer; exact registry URL, checksum and recipient instructions required');
+      checkPrivate(sourceOffer.instructions, privateRoots, 'Source offer');
+      sourceOffer = { url: sourceOffer.url, sha256: sourceOffer.sha256, instructions: sourceOffer.instructions };
+    }
     requireNotice(entry.status === 'blocked' || sources.some(source => source.role === 'license'), 'Fallback requires reviewed license text');
     requireNotice(sources.reduce((sum, source) => sum + Buffer.byteLength(source.text), 0) <= 8 * 1024 * 1024, 'Fallback package text limit exceeded');
     checkPrivate(entry.reason, privateRoots, 'Fallback');
     const supplement = entry.supplement === undefined ? undefined : await sdkSupplement(root, entry, budget, privateRoots);
-    result.set(key, { ...entry, sources, linkedTerms: [...links.values()], supplement });
+    result.set(key, { ...entry, sources, linkedTerms: [...links.values()], supplement, sourceOffer });
   }
   reserve(budget, manifest);
   return result;
@@ -264,13 +276,17 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
         local.push(evidence);
       }
     }
+    if (fallback.sourceOffer) {
+      requireNotice(pkg.checksum === fallback.sourceOffer.sha256, `${label}: source offer checksum differs from Cargo metadata`);
+    }
     if (fallback.status === 'blocked') reason = fallback.reason;
   }
   const hasLicense = local.some(item => item.provenance.kind === 'package'
     ? isLicenseFile(item.file) || item.file === pkg.license_file : item.provenance.role === 'license');
   if (!hasLicense && !reason) reason = 'Missing license text; no reviewed pinned upstream fallback';
   requireNotice(local.reduce((sum, item) => sum + Buffer.byteLength(item.text), 0) <= 8 * 1024 * 1024, `${label}: notice text limit exceeded`);
-  return { texts: local, licenseTextAvailable: hasLicense, ...(reason ? { unresolved: reason } : {}) };
+  return { texts: local, licenseTextAvailable: hasLicense,
+    ...(fallback?.sourceOffer ? { sourceOffer: fallback.sourceOffer } : {}), ...(reason ? { unresolved: reason } : {}) };
 }
 
 async function npmPackages(root, budget, privateRoots) {
@@ -390,7 +406,9 @@ async function generateNotices({ root = process.cwd(), metadata, exec = promisif
       const key = `${record.ecosystem}:${record.name}@${record.version}`;
       const previous = merged.get(key);
       if (previous) {
-        requireNotice(previous.license === record.license && previous.unresolved === record.unresolved && JSON.stringify(previous.texts) === JSON.stringify(record.texts), `${key}: conflicting license evidence`);
+        requireNotice(previous.license === record.license && previous.unresolved === record.unresolved &&
+          JSON.stringify(previous.texts) === JSON.stringify(record.texts) &&
+          JSON.stringify(previous.sourceOffer) === JSON.stringify(record.sourceOffer), `${key}: conflicting license evidence`);
         previous.targets = sorted(new Set([...previous.targets, ...record.targets]));
       } else merged.set(key, record);
     }
