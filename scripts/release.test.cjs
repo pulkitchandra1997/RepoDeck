@@ -35,9 +35,13 @@ test('desktop packaging fetches the complete notice union and verifies bundled r
   assert.match(workflow, /--notices-sha256/);
 });
 
-test('preview 3 notes disclose the restored native application icon', async () => {
+test('preview 3 notes disclose the complete repair scope since public v0.1.0', async () => {
   const notes = JSON.parse(await fs.readFile('docs/releases/versions/0.1.1-preview.3.json', 'utf8'));
   assert.ok(notes.fixes.some(fix => /native application icon/i.test(fix)));
+  assert.ok(notes.features.some(feature => /since.*v0\.1\.0.*Copilot instructions/i.test(feature)));
+  assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*saved settings/i.test(fix)));
+  assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*padded searches/i.test(fix)));
+  assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*numeric Apple bundle versions.*ad-hoc.*native disk-image/i.test(fix)));
 });
 
 test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
