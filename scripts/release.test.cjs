@@ -23,6 +23,7 @@ test('notice packaging command selects strict collection and maps the fresh arti
 
 test('desktop packaging fetches the complete notice union and verifies bundled resources', async () => {
   const workflow = await fs.readFile('.github/workflows/verify.yml', 'utf8');
+  assert.match(workflow, /^\s*cargo fetch --locked\s*$/m);
   for (const target of targets) {
     assert.match(workflow, new RegExp(`cargo fetch --locked --target ${target}`));
   }

@@ -360,10 +360,12 @@ retained file and a concrete conflicting obligation.
 ### Packaging Acceptance
 
 Issue #17 remains open until the strict artifact is bundled and verified on all
-three targets. Each matrix runner must fetch the locked Cargo source closure for
-Windows, arm64 macOS, and x86_64 macOS before offline generation. Packaging must
-use `src-tauri/tauri.notices.conf.json`. Windows CI extracts the NSIS archive with
-7-Zip without executing it and verifies the root `THIRD-PARTY-NOTICES.json`
+three targets. Each matrix runner must fetch the three locked target closures
+and the unfiltered locked dependency set before offline generation; Cargo's
+targeted fetch alone can omit packages still visited by filtered offline
+metadata. Packaging must use `src-tauri/tauri.notices.conf.json`. Windows CI
+extracts the NSIS archive with 7-Zip without executing it and verifies the root
+`THIRD-PARTY-NOTICES.json`
 against the generated SHA-256 and release-complete schema. macOS CI passes that
 same generated hash to the native DMG validator and requires the exact file at
 `Contents/Resources/THIRD-PARTY-NOTICES.json`. Missing, linked, altered,
