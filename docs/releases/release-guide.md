@@ -33,9 +33,20 @@ Signing and installer lifecycle evidence remain required for stable distribution
 locked application dependencies and verified artifact digests. Hosted runner
 images, Rust stable and packaging tools can change: this is **not a promise of
 byte-identical rebuilds**. SHA-256 manifests are integrity records, not signatures
-or attestations of a safe installer.
+or attestations of a safe installer. Windows can confirm downloaded DMG bytes and
+the UDIF trailer, but cannot run native `hdiutil` verification, mount the image or
+inspect the macOS bundle; those checks must run on macOS before artifact upload.
 
 ## Preview Version Workflow
+
+Apple requires `CFBundleShortVersionString` to contain three numeric components.
+The pinned Tauri bundler writes its configured version literally and does not
+normalize prerelease suffixes. A preview build therefore needs an explicit numeric
+macOS bundle version such as `0.1.1`; do not assume that `0.1.1-preview.1` will be
+converted automatically. Native DMG validation compares the value actually written
+to `Info.plist` and fails before upload when it is unsupported or unexpected. The
+workflow derives only this comparison value with the SemVer parser; package,
+artifact and release versions retain the full prerelease string.
 
 1. In a separately authorized version PR, update `package.json`, `package-lock.json` (root and root package), both Cargo package versions/Cargo.lock, and `src-tauri/tauri.conf.json` together to `X.Y.Z-preview.N`. Add matching [version notes](preview-notes.md). Run `npm run check:release` and `npm run test:release`. This tooling PR does not bump a version or authorize a tag push.
 2. Review the PR and wait for required `Desktop verification` on its current revision before merging to `main`. Resolve review conversations. Automated checks prove a merged PR association, not the quality of human review; the maintainer is accountable for that review.

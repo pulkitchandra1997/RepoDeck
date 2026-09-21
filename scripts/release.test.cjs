@@ -8,6 +8,25 @@ const { createHash } = require('node:crypto');
 const { stageRelease } = require('./stage-release.cjs');
 const { spawnSync } = require('node:child_process');
 
+test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
+  const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
+  const version = require('semver').parse(config.version);
+  assert.ok(version);
+  const numeric = `${version.major}.${version.minor}.${version.patch}`;
+  assert.equal(config.bundle.macOS.bundleVersion, numeric);
+  assert.equal(config.bundle.macOS.infoPlist, 'Info.plist');
+  const plist = await fs.readFile('src-tauri/Info.plist', 'utf8');
+  assert.equal(plist.replaceAll('\r\n', '\n'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleShortVersionString</key>
+  <string>${numeric}</string>
+</dict>
+</plist>
+`);
+});
+
 test('preview policy CLI fails closed with a useful diagnostic outside a release environment', () => {
   const result = spawnSync(process.execPath, ['scripts/check-release.cjs', '--preview-policy'], {
     encoding: 'utf8', windowsHide: true,
