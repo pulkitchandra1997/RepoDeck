@@ -42,6 +42,7 @@ function parseCliArguments(args) {
     ['--version', 'expectedVersion'],
     ['--arch', 'expectedArch'],
     ['--sha256', 'expectedSha256'],
+    ['--icon-sha256', 'expectedIconSha256'],
     ['--notices-sha256', 'expectedNoticesSha256'],
     ['--signature', 'signaturePolicy'],
     ['--evidence', 'evidenceFile'],
@@ -62,6 +63,9 @@ function parseCliArguments(args) {
   options.signaturePolicy ||= 'required';
   assert.ok(allowedSignaturePolicies.has(options.signaturePolicy), '--signature must be ad-hoc, required or observe');
   if (options.expectedSha256) assert.match(options.expectedSha256, /^[0-9a-f]{64}$/, '--sha256 must be a lowercase SHA-256 digest');
+  if (options.expectedIconSha256) {
+    assert.match(options.expectedIconSha256, /^[0-9a-f]{64}$/, '--icon-sha256 must be a lowercase SHA-256 digest');
+  }
   if (options.expectedNoticesSha256) {
     assert.match(options.expectedNoticesSha256, /^[0-9a-f]{64}$/, '--notices-sha256 must be a lowercase SHA-256 digest');
   }
@@ -313,6 +317,16 @@ function validateBundledNotices(appInventory, expectedSha256) {
   assert.equal(matches[0].sha256, expectedSha256, 'Bundled notices SHA-256 mismatch');
 }
 
+function validateBundledIcon(appInventory, info, expectedSha256) {
+  if (!expectedSha256) return;
+  const iconPath = 'Contents/Resources/icon.icns';
+  const matches = appInventory.filter(entry => entry.path === iconPath);
+  assert.equal(matches.length, 1, 'Required bundled icon is missing');
+  assert.equal(matches[0].type, 'file', 'Bundled icon must be a regular file');
+  assert.equal(matches[0].sha256, expectedSha256, 'Bundled icon SHA-256 mismatch');
+  assert.equal(info.CFBundleIconFile, 'icon.icns', 'Unexpected bundle icon metadata');
+}
+
 async function writeEvidence(file, evidence) {
   let created = false;
   try {
@@ -336,6 +350,7 @@ async function validateDmgDirectory(options, dependencies = {}) {
     expectedVersion,
     expectedArch,
     expectedSha256,
+    expectedIconSha256,
     expectedNoticesSha256,
     signaturePolicy = 'required',
     evidenceFile,
@@ -346,6 +361,9 @@ async function validateDmgDirectory(options, dependencies = {}) {
   assert.ok(allowedArchitectures.has(expectedArch), 'Expected architecture must be arm64 or x86_64');
   assert.ok(allowedSignaturePolicies.has(signaturePolicy), 'Signature policy must be ad-hoc, required or observe');
   if (expectedSha256) assert.match(expectedSha256, /^[0-9a-f]{64}$/, 'Expected SHA-256 digest is invalid');
+  if (expectedIconSha256) {
+    assert.match(expectedIconSha256, /^[0-9a-f]{64}$/, 'Expected icon SHA-256 digest is invalid');
+  }
   if (expectedNoticesSha256) {
     assert.match(expectedNoticesSha256, /^[0-9a-f]{64}$/, 'Expected notices SHA-256 digest is invalid');
   }
@@ -404,6 +422,7 @@ async function validateDmgDirectory(options, dependencies = {}) {
       machOFiles.some(entry => entry.path === executableRelativePath),
       'Expected RepoDeck executable is not a Mach-O regular file',
     );
+    validateBundledIcon(appInventory, info, expectedIconSha256);
     validateBundledNotices(appInventory, expectedNoticesSha256);
 
     const allowSignatureFailure = signaturePolicy === 'observe';

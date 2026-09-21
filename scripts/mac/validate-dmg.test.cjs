@@ -14,6 +14,8 @@ const {
 } = require('./validate-dmg.cjs');
 
 const expectedHash = '7abc42290786bcbb69e9caf8e1b551de57c0f926f124453e94a11612870b5219';
+const iconContent = Buffer.from('fixture-icns-bytes');
+const iconHash = createHash('sha256').update(iconContent).digest('hex');
 const noticesContent = '{"packages":[{"name":"fixture"}]}\n';
 const noticesHash = createHash('sha256').update(noticesContent).digest('hex');
 
@@ -40,7 +42,10 @@ function nativeFixture({
   signatureStatus = 0,
   detachStatus = 0,
   externalDirectoryLink = false,
+  bundledIcon,
   bundledNotices,
+  bundleIconFile,
+  iconSymlink = false,
   noticesSymlink = false,
   otoolStatus = 0,
 } = {}) {
@@ -71,6 +76,14 @@ function nativeFixture({
       fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'readme.txt'), 'fixture resource');
       fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'Fixture.class'), Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 52]));
       fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), 'fixture plist');
+      const icon = path.join(app, 'Contents', 'Resources', 'icon.icns');
+      if (iconSymlink) {
+        const outsideIcon = path.join(path.dirname(mountPoint), 'outside-icon');
+        fs.mkdirSync(outsideIcon);
+        fs.symlinkSync(outsideIcon, icon, process.platform === 'win32' ? 'junction' : 'dir');
+      } else if (bundledIcon !== undefined) {
+        fs.writeFileSync(icon, bundledIcon);
+      }
       const notices = path.join(app, 'Contents', 'Resources', 'THIRD-PARTY-NOTICES.json');
       if (noticesSymlink) {
         const outsideNotices = path.join(path.dirname(mountPoint), 'outside-notices');
@@ -111,6 +124,7 @@ function nativeFixture({
         CFBundleExecutable: 'repodeck-desktop',
         CFBundleIdentifier: 'org.repodeck.desktop',
         CFBundleShortVersionString: bundleVersion,
+        ...(bundleIconFile === undefined ? {} : { CFBundleIconFile: bundleIconFile }),
       }), stderr: '' };
     }
     if (command === 'lipo') return { status: 0, stdout: `${architecture}\n`, stderr: '' };
@@ -394,6 +408,85 @@ test('requires exact bundled notice bytes when a notice hash is supplied', async
   });
 });
 
+test('configures the existing platform icons for native bundles', async () => {
+  const config = JSON.parse(await fsp.readFile(path.join(__dirname, '../../src-tauri/tauri.conf.json'), 'utf8'));
+  assert.deepEqual(config.bundle.icon, [
+    'icons/32x32.png',
+    'icons/128x128.png',
+    'icons/128x128@2x.png',
+    'icons/icon.icns',
+    'icons/icon.ico',
+  ]);
+  for (const icon of config.bundle.icon) {
+    const info = await fsp.lstat(path.join(__dirname, '../../src-tauri', icon));
+    assert.ok(info.isFile() && !info.isSymbolicLink(), `${icon} must be an existing regular file`);
+  }
+});
+
+test('requires exact bundled icon bytes and plist metadata when an icon hash is supplied', async () => {
+  await withDmgFixture(async ({ bundleDirectory, evidenceFile }) => {
+    const fixture = nativeFixture({ bundledIcon: iconContent, bundleIconFile: 'icon.icns' });
+    const result = await validateDmgDirectory({
+      bundleDirectory,
+      expectedVersion: '0.1.0',
+      expectedArch: 'arm64',
+      expectedIconSha256: iconHash,
+      signaturePolicy: 'ad-hoc',
+      evidenceFile,
+    }, { execute: fixture.execute, platform: 'darwin', writeOutput: () => {} });
+
+    const icon = result.appInventory.find(entry => entry.path === 'Contents/Resources/icon.icns');
+    assert.deepEqual(icon, {
+      path: 'Contents/Resources/icon.icns',
+      sha256: iconHash,
+      size: iconContent.length,
+      type: 'file',
+    });
+  });
+});
+
+for (const scenario of [
+  {
+    name: 'missing',
+    fixture: { bundleIconFile: 'icon.icns' },
+    pattern: /required bundled icon is missing/i,
+  },
+  {
+    name: 'mismatched',
+    fixture: { bundledIcon: Buffer.from('different-icon'), bundleIconFile: 'icon.icns' },
+    pattern: /bundled icon SHA-256 mismatch/i,
+  },
+  {
+    name: 'symlinked',
+    fixture: { iconSymlink: true, bundleIconFile: 'icon.icns' },
+    pattern: /bundled icon must be a regular file/i,
+  },
+  {
+    name: 'unreferenced',
+    fixture: { bundledIcon: iconContent },
+    pattern: /unexpected bundle icon metadata/i,
+  },
+]) {
+  test(`fails closed for ${scenario.name} bundled icon evidence`, async () => {
+    await withDmgFixture(async ({ bundleDirectory, evidenceFile }) => {
+      const fixture = nativeFixture(scenario.fixture);
+      await assert.rejects(validateDmgDirectory({
+        bundleDirectory,
+        expectedVersion: '0.1.0',
+        expectedArch: 'arm64',
+        expectedIconSha256: iconHash,
+        signaturePolicy: 'ad-hoc',
+        evidenceFile,
+      }, { execute: fixture.execute, platform: 'darwin', writeOutput: () => {} }), scenario.pattern);
+      assert.deepEqual(
+        fixture.calls.filter(call => call.command === 'hdiutil' && call.args[0] === 'detach').map(call => call.args),
+        [['detach', '/dev/disk9s1']],
+      );
+      await assert.rejects(fsp.access(evidenceFile));
+    });
+  });
+}
+
 for (const scenario of [
   {
     name: 'missing',
@@ -449,6 +542,10 @@ test('CLI arguments are strict and keep published hash and signature policy expl
     '--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64',
     '--evidence', '/tmp/evidence.json', '--notices-sha256', noticesHash,
   ]).expectedNoticesSha256, noticesHash);
+  assert.equal(parseCliArguments([
+    '--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64',
+    '--evidence', '/tmp/evidence.json', '--icon-sha256', iconHash,
+  ]).expectedIconSha256, iconHash);
   assert.throws(() => parseCliArguments([]), /name\/value/);
   assert.throws(() => parseCliArguments([
     '--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64',
@@ -458,6 +555,7 @@ test('CLI arguments are strict and keep published hash and signature policy expl
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'other', '--evidence', '/tmp/evidence.json'],
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--signature', 'skip', '--evidence', '/tmp/evidence.json'],
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--unknown', 'value', '--evidence', '/tmp/evidence.json'],
+    ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--evidence', '/tmp/evidence.json', '--icon-sha256', iconHash.toUpperCase()],
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--evidence', '/tmp/evidence.json', '--notices-sha256', noticesHash.toUpperCase()],
   ]) assert.throws(() => parseCliArguments(args));
 });
