@@ -420,7 +420,11 @@ test('checked-in upstream evidence validates offline and retains every explicit 
       text.provenance.applicability).map(text => text.file).sort();
     assert.deepEqual(files, pkg.license === 'MIT' ? ['LICENSE-MIT.txt'] :
       ['LICENSE-APACHE.txt', 'LICENSE-MIT.txt', 'LICENSE-ZLIB.txt']);
-    assert.match(pkg.unresolved, /Apple SDK-derived distribution rights/i);
+    assert.match(pkg.unresolved, /Issue #23 concerns prospective relicensing only/i);
+    assert.match(pkg.unresolved, /not a prerequisite for the current declared licenses/i);
+    assert.match(pkg.unresolved, /exact SDK inputs/i);
+    assert.match(pkg.unresolved, /final application bundle/i);
+    assert.doesNotMatch(pkg.unresolved, /permissions outstanding|prohibited|legal\/maintainer/i);
   }
   const actualSources = new Set(doc.packages.flatMap(pkg => pkg.texts).filter(text => text.provenance.kind === 'pinned-upstream').map(text => `${text.provenance.url}:${text.sha256}`));
   assert.equal(actualSources.size, manifest.sources.length);

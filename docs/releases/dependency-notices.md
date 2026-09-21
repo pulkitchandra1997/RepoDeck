@@ -191,11 +191,12 @@ support 22 exact crate records, including explicitly blocked evidence.
 - Eleven `objc2` family crates: the shared `LICENSE.md` at four published
   revisions is retained as applicability evidence. A later upstream commit,
   `ee9a7ada2131f5944b8750428e265c15632f2a19`, added the project's full MIT,
-  Zlib and Apache-2.0 texts to fix upstream issue #826 without changing the
-  Apple SDK uncertainty. MIT-only crates collect the MIT text; declarations of
+  Zlib and Apache-2.0 texts to fix upstream issue #826. MIT-only crates collect
+  the MIT text; declarations of
   `Zlib OR Apache-2.0 OR MIT` retain all three texts without selecting an
-  alternative. The records remain blocked only on the explicitly unresolved
-  Apple SDK-derived distribution rights.
+  alternative. This completes notice collection for the current declared
+  licenses. The records remain blocked on the separate SDK provenance and
+  package-content review described below.
 - `selectors@0.36.1`: its pinned `selectors/lib.rs` explicitly refers to
   `https://mozilla.org/MPL/2.0/`. Mozilla's official plaintext download matched
   `mozilla/bedrock` commit `a15178c3c7c976c67b3641af77cae0b66093a175`,
@@ -221,8 +222,8 @@ and five npm). Target membership is 268 third-party Cargo packages for Windows,
 262 for each macOS architecture, and five npm packages on every target.
 The inventory is incomplete for distribution: 11 explicit blockers remain.
 For the lockfiles inherited from `30056dd` and the branch after merging
-`origin/main` at `ca382ca`, the updated inventory is 3,009,040 bytes with SHA-256
-`823da31db3ad1d69c7fcbc7a250e73c61af4eb2cd17c45cca75199b06804b5b0`.
+`origin/main` at `1978fed`, the updated inventory is 3,014,606 bytes with SHA-256
+`8d2accc1117880279f2dd02034fb5e4e5126d639d8127ef4ac5b7c78c6cdb8dc`.
 All individual text hashes were recomputed and verified. Earlier September 15 and
 16 artifacts are historical evidence, not the current collection.
 
@@ -245,13 +246,42 @@ remain pending; neither collector result is legal clearance.
 
 1. `block2`, `dispatch2`, `objc2`, `objc2-encode`, `objc2-exception-helper`,
    `objc2-foundation`, `objc2-app-kit`, `objc2-core-foundation`,
-   `objc2-core-graphics`, `objc2-io-surface`, and `objc2-web-kit`: full applicable
-   upstream texts are now collected, but unresolved SDK-derived terms remain in the
-   [pinned upstream evidence](https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md).
-   The referenced [relicensing issue #23](https://github.com/madsmtm/objc2/issues/23)
-   remained open on September 21 with permissions outstanding. No attribution was
-   removed and no license alternative was selected based on that proposal. This is
-   a genuinely external legal/maintainer blocker, not missing collector machinery.
+   `objc2-core-graphics`, `objc2-io-surface`, and `objc2-web-kit`: all texts for
+   their current declared licenses are collected. The
+   [pinned upstream declaration](https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md)
+   says that four crate families are currently MIT-licensed and the others are
+   MIT/Zlib/Apache-2.0 at the recipient's option. Its reference to
+   [issue #23](https://github.com/madsmtm/objc2/issues/23) concerns a prospective
+   move from MIT-only licensing to the three-license choice and a copyright-notice
+   change. Closing that issue is not a prerequisite to use the current declared
+   licenses, and this release gate does not treat it as one.
+
+### objc2 Review Boundary
+
+The same pinned declaration separately says the crates are derived from Apple
+SDKs and raises a distribution question. The current
+[Xcode and Apple SDKs Agreement](https://www.apple.com/legal/sla/docs/xcode.pdf)
+(EA2002, dated 2026-06-08) defines Apple SDKs to include headers, APIs, libraries,
+and source/object code; permits compliant macOS applications and libraries to be
+distributed; and restricts copying, redistribution, modification, and derivative
+works of Apple Software in Sections 2.4, 2.5, and 2.7. Those clauses do not by
+themselves establish the contents or generation history of these pinned crates.
+
+The exact remaining factual record is:
+
+1. Identify the Apple SDK and Xcode versions, generator versions, SDK inputs,
+   and the agreement version accompanying those tools for each pinned published
+   crate revision.
+2. Map generated crate files to those inputs and identify what Apple-provided
+   text, code, or data, if any, is retained in the published crate rather than
+   only represented as Rust interface declarations.
+3. Inspect the final RepoDeck application bundle and resources to determine
+   whether they contain Apple SDK files or content, rather than only references
+   needed to link to system frameworks.
+
+Strict collection remains blocked until that evidence is reviewed. This records
+neither a conclusion that distribution is prohibited nor legal clearance to
+distribute; any interpretation of the agreement remains outside the collector.
 
 Strict collection and the notice packaging pre-build step deliberately fail.
 No distributable notice artifact is claimed. Issue #17 is **not closed**.
@@ -274,7 +304,7 @@ The September 21 regressions cover exact source-offer URL/hash/instructions,
 direct cached-archive verification, shipped and omitted repository-root
 declarations, full multi-license applicability without choosing an alternative,
 and the strict notice-packaging command. `node --test scripts/notices.test.cjs
-scripts/release.test.cjs` passed all 44 tests. The real `--inventory` collection
+scripts/release.test.cjs` passed all 45 tests. The real `--inventory` collection
 succeeded with the evidence above; strict collection exited 1 for the 11 recorded
 objc2 decisions and created no bundle notice artifact.
 
