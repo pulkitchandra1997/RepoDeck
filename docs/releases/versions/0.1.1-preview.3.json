@@ -6,7 +6,8 @@
   ],
   "fixes": [
     "Fetch the complete locked Cargo source union before strict offline notice generation on every packaging runner.",
-    "Reject release packages whose embedded notice resource is missing, altered, incomplete or still pending review."
+    "Reject release packages whose embedded notice resource is missing, altered, incomplete or still pending review.",
+    "Restore the native application icon in packaged bundles and verify its exact macOS resource bytes and bundle metadata."
   ],
   "limitations": [
     "Windows installers are unsigned. macOS bundles have ad-hoc signatures, not Developer ID signatures or notarization; operating-system security checks may block launch.",

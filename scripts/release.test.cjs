@@ -30,7 +30,14 @@ test('desktop packaging fetches the complete notice union and verifies bundled r
   assert.match(workflow, /npm run package:notices -- --target/);
   assert.match(workflow, /7z[^\r\n]* x /i);
   assert.match(workflow, /verify-nsis-notices\.cjs/);
+  assert.match(workflow, /ICON_SHA256=.*src-tauri\/icons\/icon\.icns/);
+  assert.match(workflow, /--icon-sha256 "\$ICON_SHA256"/);
   assert.match(workflow, /--notices-sha256/);
+});
+
+test('preview 3 notes disclose the restored native application icon', async () => {
+  const notes = JSON.parse(await fs.readFile('docs/releases/versions/0.1.1-preview.3.json', 'utf8'));
+  assert.ok(notes.fixes.some(fix => /native application icon/i.test(fix)));
 });
 
 test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
