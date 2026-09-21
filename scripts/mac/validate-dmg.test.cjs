@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 
 const {
   appleShortVersion,
@@ -13,6 +14,8 @@ const {
 } = require('./validate-dmg.cjs');
 
 const expectedHash = '7abc42290786bcbb69e9caf8e1b551de57c0f926f124453e94a11612870b5219';
+const noticesContent = '{"packages":[{"name":"fixture"}]}\n';
+const noticesHash = createHash('sha256').update(noticesContent).digest('hex');
 
 async function withDmgFixture(run) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'repodeck-dmg-test-'));
@@ -37,6 +40,8 @@ function nativeFixture({
   signatureStatus = 0,
   detachStatus = 0,
   externalDirectoryLink = false,
+  bundledNotices,
+  noticesSymlink = false,
   otoolStatus = 0,
 } = {}) {
   const calls = [];
@@ -66,6 +71,14 @@ function nativeFixture({
       fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'readme.txt'), 'fixture resource');
       fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'Fixture.class'), Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 52]));
       fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), 'fixture plist');
+      const notices = path.join(app, 'Contents', 'Resources', 'THIRD-PARTY-NOTICES.json');
+      if (noticesSymlink) {
+        const outsideNotices = path.join(path.dirname(mountPoint), 'outside-notices');
+        fs.mkdirSync(outsideNotices);
+        fs.symlinkSync(outsideNotices, notices, process.platform === 'win32' ? 'junction' : 'dir');
+      } else if (bundledNotices !== undefined) {
+        fs.writeFileSync(notices, bundledNotices);
+      }
       if (externalDirectoryLink) {
         const outside = path.join(path.dirname(mountPoint), 'outside');
         fs.mkdirSync(outside);
@@ -359,6 +372,65 @@ test('fails closed, detaches, and retains no evidence when otool inspection fail
   });
 });
 
+test('requires exact bundled notice bytes when a notice hash is supplied', async () => {
+  await withDmgFixture(async ({ bundleDirectory, evidenceFile }) => {
+    const fixture = nativeFixture({ bundledNotices: noticesContent });
+    const result = await validateDmgDirectory({
+      bundleDirectory,
+      expectedVersion: '0.1.0',
+      expectedArch: 'arm64',
+      expectedNoticesSha256: noticesHash,
+      signaturePolicy: 'ad-hoc',
+      evidenceFile,
+    }, { execute: fixture.execute, platform: 'darwin', writeOutput: () => {} });
+
+    const notice = result.appInventory.find(entry => entry.path === 'Contents/Resources/THIRD-PARTY-NOTICES.json');
+    assert.deepEqual(notice, {
+      path: 'Contents/Resources/THIRD-PARTY-NOTICES.json',
+      sha256: noticesHash,
+      size: Buffer.byteLength(noticesContent),
+      type: 'file',
+    });
+  });
+});
+
+for (const scenario of [
+  {
+    name: 'missing',
+    fixture: {},
+    pattern: /required bundled notices are missing/i,
+  },
+  {
+    name: 'mismatched',
+    fixture: { bundledNotices: '{"packages":[]}\n' },
+    pattern: /bundled notices SHA-256 mismatch/i,
+  },
+  {
+    name: 'symlinked',
+    fixture: { noticesSymlink: true },
+    pattern: /bundled notices must be a regular file/i,
+  },
+]) {
+  test(`fails closed for ${scenario.name} bundled notices`, async () => {
+    await withDmgFixture(async ({ bundleDirectory, evidenceFile }) => {
+      const fixture = nativeFixture(scenario.fixture);
+      await assert.rejects(validateDmgDirectory({
+        bundleDirectory,
+        expectedVersion: '0.1.0',
+        expectedArch: 'arm64',
+        expectedNoticesSha256: noticesHash,
+        signaturePolicy: 'ad-hoc',
+        evidenceFile,
+      }, { execute: fixture.execute, platform: 'darwin', writeOutput: () => {} }), scenario.pattern);
+      assert.deepEqual(
+        fixture.calls.filter(call => call.command === 'hdiutil' && call.args[0] === 'detach').map(call => call.args),
+        [['detach', '/dev/disk9s1']],
+      );
+      await assert.rejects(fsp.access(evidenceFile));
+    });
+  });
+}
+
 test('CLI arguments are strict and keep published hash and signature policy explicit', () => {
   assert.deepEqual(parseCliArguments([
     '--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'x86_64',
@@ -373,6 +445,10 @@ test('CLI arguments are strict and keep published hash and signature policy expl
     signaturePolicy: 'observe',
     evidenceFile: '/tmp/evidence.json',
   });
+  assert.equal(parseCliArguments([
+    '--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64',
+    '--evidence', '/tmp/evidence.json', '--notices-sha256', noticesHash,
+  ]).expectedNoticesSha256, noticesHash);
   assert.throws(() => parseCliArguments([]), /name\/value/);
   assert.throws(() => parseCliArguments([
     '--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64',
@@ -382,5 +458,6 @@ test('CLI arguments are strict and keep published hash and signature policy expl
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'other', '--evidence', '/tmp/evidence.json'],
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--signature', 'skip', '--evidence', '/tmp/evidence.json'],
     ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--unknown', 'value', '--evidence', '/tmp/evidence.json'],
+    ['--directory', '/tmp/release', '--version', '0.1.0', '--arch', 'arm64', '--evidence', '/tmp/evidence.json', '--notices-sha256', noticesHash.toUpperCase()],
   ]) assert.throws(() => parseCliArguments(args));
 });
