@@ -97,6 +97,34 @@ async function verifySdkBinary(directory, expected) {
   } finally { await handle.close(); }
 }
 
+async function verifySourceOfferArchive(directory, entry, offer) {
+  const packageDirectory = await fs.realpath(directory);
+  const indexDirectory = path.dirname(packageDirectory);
+  const sourceDirectory = path.dirname(indexDirectory);
+  const registryDirectory = path.dirname(sourceDirectory);
+  requireNotice(path.basename(packageDirectory) === `${entry.name}-${entry.version}` &&
+    path.basename(sourceDirectory) === 'src' && path.basename(registryDirectory) === 'registry',
+  'Source offer requires a Cargo registry package');
+  const archive = path.join(registryDirectory, 'cache', path.basename(indexDirectory), `${entry.name}-${entry.version}.crate`);
+  requireNotice((await fs.lstat(archive)).isFile() && await fs.realpath(archive) === archive,
+    'Source offer archive must be a regular unlinked Cargo cache file');
+  const handle = await fs.open(archive, 'r');
+  try {
+    const size = (await handle.stat()).size;
+    requireNotice(size > 0 && size <= LIMIT, 'Source offer archive size limit exceeded');
+    const hash = createHash('sha256'), buffer = Buffer.alloc(64 * 1024);
+    let total = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      total += bytesRead;
+      requireNotice(total <= LIMIT, 'Source offer archive size limit exceeded');
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    requireNotice(total === size && hash.digest('hex') === offer.sha256, 'Source offer archive hash mismatch');
+  } finally { await handle.close(); }
+}
+
 function identity(name, version) {
   requireNotice(typeof name === 'string' && name.length <= 256 && /^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(name), 'Unsupported package name');
   requireNotice(typeof version === 'string' && version.length <= 256 && /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.+-]+)?$/.test(version), 'Unsupported package version');
@@ -209,7 +237,13 @@ async function loadFallbacks(root, budget, privateRoots) {
       requireNotice(Number.isInteger(link.source) && Number.isInteger(link.declaration) && entry.sources.includes(link.source) && entry.sources.includes(link.declaration) && !links.has(link.source), 'Invalid or duplicate linked terms reference');
       const source = manifest.sources[link.source], declaration = manifest.sources[link.declaration];
       requireNotice(source.role === 'license' && !samePackage(source) && samePackage(declaration) && declaration.role === 'evidence', 'Linked terms require same-package declaration evidence');
-      requireNotice(safeRelative(link.packageFile) && typeof entry.pathInVcs === 'string' && declaration.file === (entry.pathInVcs ? `${entry.pathInVcs}/` : '') + link.packageFile, 'Invalid linked terms package path');
+      const rootDeclarationOnly = link.packageFile === null && safeRelative(declaration.file) && !declaration.file.includes('/');
+      const inPackageSource = typeof link.packageFile === 'string'
+        ? (entry.pathInVcs ? `${entry.pathInVcs}/` : '') + link.packageFile : '';
+      const shippedDeclaration = safeRelative(link.packageFile) &&
+        [inPackageSource, link.packageFile].includes(declaration.file);
+      requireNotice(typeof entry.pathInVcs === 'string' && (rootDeclarationOnly || shippedDeclaration),
+        'Invalid linked terms package path');
       requireNotice(httpsUrl(link.url) && httpsUrl(link.textUrl) && referencesUrl(declaration.text, link.url), 'Linked terms URL is not present in declaration evidence');
       checkPrivate(`${link.url}\n${link.textUrl}`, privateRoots, 'Linked terms');
       links.set(link.source, { ...link, declaration });
@@ -254,6 +288,7 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
     const vcs = JSON.parse(await read(vcsFile, 16384));
     requireNotice(vcs.git?.sha1 === fallback.revision && vcs.git?.dirty !== true && (vcs.path_in_vcs ?? null) === fallback.pathInVcs, `${label}: fallback revision or crate path mismatch`);
     for (const link of fallback.linkedTerms) {
+      if (link.packageFile === null) continue;
       const file = path.join(await fs.realpath(directory), link.packageFile);
       requireNotice((await fs.lstat(file)).isFile() && await fs.realpath(file) === file, `${label}: declaration must be a regular unlinked package file`);
       requireNotice(sha256(await read(file, 2 * 1024 * 1024)) === link.declaration.sha256, `${label}: declaration hash differs from pinned evidence`);
@@ -277,7 +312,7 @@ async function cargoTexts(pkg, label, privateRoots, budget, fallbacks) {
       }
     }
     if (fallback.sourceOffer) {
-      requireNotice(pkg.checksum === fallback.sourceOffer.sha256, `${label}: source offer checksum differs from Cargo metadata`);
+      await verifySourceOfferArchive(directory, fallback, fallback.sourceOffer);
     }
     if (fallback.status === 'blocked') reason = fallback.reason;
   }

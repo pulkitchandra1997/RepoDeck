@@ -362,11 +362,25 @@ test('fallback and bundle directory links cannot redirect reads or writes', asyn
 
 test('checked-in upstream evidence validates offline and retains every explicit blocker', async t => {
   const f = await fixture(t);
-  const manifest = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/manifest.json')));
+  const checkedIn = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/manifest.json')));
+  assert.deepEqual(checkedIn.packages.find(entry => entry.name === 'selectors').sourceOffer, {
+    url: 'https://static.crates.io/crates/selectors/selectors-0.36.1.crate',
+    sha256: 'c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c',
+    instructions: 'Corresponding source for the unmodified selectors 0.36.1 crate is available at https://static.crates.io/crates/selectors/selectors-0.36.1.crate. Verify the downloaded archive with SHA-256 c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c.',
+  });
+  const manifest = structuredClone(checkedIn);
   await f.write('scripts/license-fallbacks/manifest.json', manifest);
   const packages = [], nodes = [];
   for (const entry of manifest.packages) {
-    const directory = `upstream/${entry.name}`;
+    const directory = entry.sourceOffer ? `registry/src/fixture-index/${entry.name}-${entry.version}` :
+      `upstream/${entry.name}`;
+    if (entry.sourceOffer) {
+      const archive = `Fixture source archive for ${entry.name}@${entry.version}`;
+      const fixtureHash = createHash('sha256').update(archive).digest('hex');
+      entry.sourceOffer.instructions = entry.sourceOffer.instructions.replaceAll(entry.sourceOffer.sha256, fixtureHash);
+      entry.sourceOffer.sha256 = fixtureHash;
+      await f.write(`registry/cache/fixture-index/${entry.name}-${entry.version}.crate`, archive);
+    }
     await f.write(`${directory}/.cargo_vcs_info.json`, { git: { sha1: entry.revision }, ...(entry.pathInVcs === null ? {} : { path_in_vcs: entry.pathInVcs }) });
     for (const link of entry.linkedTerms || []) {
       await f.write(`${directory}/${link.packageFile}`, manifest.sources[link.declaration].text);
@@ -382,17 +396,32 @@ test('checked-in upstream evidence validates offline and retains every explicit 
       await f.write(`scripts/license-fallbacks/${entry.supplement}`, sdk);
     }
     packages.push({ id: entry.name, name: entry.name, version: entry.version, license: entry.license,
+      ...(entry.sourceOffer ? { checksum: entry.sourceOffer.sha256 } : {}),
       repository: entry.repository, source: 'registry+https://github.com/rust-lang/crates.io-index', manifest_path: path.join(f.root, directory, 'Cargo.toml') });
     nodes.push({ id: entry.name, deps: [] });
   }
+  await f.write('scripts/license-fallbacks/manifest.json', manifest);
   const metadata = () => ({ version: 1, workspace_members: ['app'],
     packages: [{ id: 'app', name: 'repodeck-desktop' }, ...packages],
     resolve: { nodes: [{ id: 'app', deps: packages.map(pkg => ({ pkg: pkg.id, dep_kinds: [{ kind: null }] })) }, ...nodes] } });
   const doc = JSON.parse(await generateNotices({ root: f.root, metadata, inventory: true }));
   assert.equal(doc.collectionComplete, false);
-  assert.deepEqual(doc.unresolved.map(pkg => pkg.name).sort(), manifest.packages.filter(pkg => pkg.status === 'blocked').map(pkg => pkg.name).sort());
-  assert.ok(doc.unresolved.some(pkg => pkg.name === 'selectors'));
-  assert.ok(doc.unresolved.some(pkg => pkg.name === 'webview2-com-sys'));
+  const objcBlockers = ['block2', 'dispatch2', 'objc2', 'objc2-app-kit', 'objc2-core-foundation',
+    'objc2-core-graphics', 'objc2-encode', 'objc2-exception-helper', 'objc2-foundation',
+    'objc2-io-surface', 'objc2-web-kit'];
+  assert.deepEqual(doc.unresolved.map(pkg => pkg.name).sort(), objcBlockers.sort());
+  const selectors = doc.packages.find(pkg => pkg.name === 'selectors');
+  assert.deepEqual(selectors.sourceOffer, manifest.packages.find(entry => entry.name === 'selectors').sourceOffer);
+  assert.ok(!selectors.unresolved);
+  assert.ok(!doc.packages.find(pkg => pkg.name === 'webview2-com-sys').unresolved);
+  for (const name of objcBlockers) {
+    const pkg = doc.packages.find(candidate => candidate.name === name);
+    const files = pkg.texts.filter(text => text.provenance.kind === 'pinned-upstream' &&
+      text.provenance.applicability).map(text => text.file).sort();
+    assert.deepEqual(files, pkg.license === 'MIT' ? ['LICENSE-MIT.txt'] :
+      ['LICENSE-APACHE.txt', 'LICENSE-MIT.txt', 'LICENSE-ZLIB.txt']);
+    assert.match(pkg.unresolved, /Apple SDK-derived distribution rights/i);
+  }
   const actualSources = new Set(doc.packages.flatMap(pkg => pkg.texts).filter(text => text.provenance.kind === 'pinned-upstream').map(text => `${text.provenance.url}:${text.sha256}`));
   assert.equal(actualSources.size, manifest.sources.length);
 });
@@ -467,16 +496,49 @@ test('changed or linked installed declaration cannot justify external license te
   await assert.rejects(f.run({ inventory: true }), /declaration.*regular/i);
 });
 
+test('repository-root declaration can bind external terms only when identical bytes ship in the crate', async t => {
+  const f = await linkedTermsFixture(t);
+  const declaration = f.manifest.sources[1];
+  declaration.file = 'LICENSE.md';
+  f.entry.linkedTerms[0].packageFile = 'LICENSE.md';
+  await f.write('crate/LICENSE.md', declaration.text);
+  await f.saveFallback();
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  assert.equal(doc.packages.find(pkg => pkg.name === f.entry.name).licenseTextAvailable, true);
+  await f.write('crate/LICENSE.md', `${declaration.text}changed`);
+  await assert.rejects(f.run({ inventory: true }), /declaration.*hash/i);
+});
+
+test('pinned repository-root declaration can bind terms when the published crate omits that file', async t => {
+  const f = await linkedTermsFixture(t);
+  const declaration = f.manifest.sources[1];
+  declaration.file = 'LICENSE.md';
+  f.entry.linkedTerms[0].packageFile = null;
+  await fs.rm(path.join(f.root, 'crate/lib.rs'));
+  await f.saveFallback();
+  const doc = JSON.parse(await f.run({ inventory: true }));
+  const text = doc.packages.find(pkg => pkg.name === f.entry.name).texts.find(item =>
+    item.provenance.applicability);
+  assert.equal(text.provenance.applicability.packageFile, null);
+  declaration.file = 'other/LICENSE.md';
+  await f.saveFallback();
+  await assert.rejects(f.run({ inventory: true }), /linked terms package path/i);
+});
+
 test('source offer is retained only for the exact Cargo registry archive and checksum', async t => {
   const f = await fallbackFixture(t);
-  const checksum = 'd'.repeat(64);
+  const checksum = 'f5efc7811552759e125c7c2dab6b9ac965d2457f04a1d3402ae926b4d1bcff32';
   const url = 'https://static.crates.io/crates/windows-crate/windows-crate-2.0.0.crate';
   const instructions = `Corresponding source for the unmodified windows-crate 2.0.0 package is available at ${url}. Verify the downloaded archive with SHA-256 ${checksum}.`;
   f.entry.sourceOffer = { url, sha256: checksum, instructions };
   f.entry.status = 'text-reviewed';
+  const packageDirectory = path.join(f.root, 'registry/src/fixture-index/windows-crate-2.0.0');
+  await fs.mkdir(path.dirname(packageDirectory), { recursive: true });
+  await fs.cp(path.join(f.root, 'crate'), packageDirectory, { recursive: true });
+  await f.write('registry/cache/fixture-index/windows-crate-2.0.0.crate', 'fixture source archive');
   const metadata = target => {
     const value = f.metadata(target);
-    value.packages[1].checksum = checksum;
+    value.packages[1].manifest_path = path.join(packageDirectory, 'Cargo.toml');
     return value;
   };
   await f.saveFallback();
@@ -495,6 +557,9 @@ test('source offer is retained only for the exact Cargo registry archive and che
     await assert.rejects(generateNotices({ root: f.root, metadata }), /source offer/i);
     f.entry.sourceOffer[field] = previous;
   }
+  await f.saveFallback();
+  await f.write('registry/cache/fixture-index/windows-crate-2.0.0.crate', 'changed source archive');
+  await assert.rejects(generateNotices({ root: f.root, metadata }), /source offer.*hash/i);
 });
 
 test('SDK supplemental texts require matching crate binaries and remain blocked for distribution', async t => {
