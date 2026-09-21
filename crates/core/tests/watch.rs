@@ -1,9 +1,41 @@
 use repodeck_core::watch;
 use std::{
+    ffi::OsStr,
     fs,
+    path::Path,
     sync::mpsc,
     time::{Duration, Instant},
 };
+
+fn git(root: &Path, args: &[&OsStr]) {
+    let result = std::process::Command::new("git")
+        .args([
+            "-c",
+            "core.hooksPath=",
+            "-c",
+            "commit.gpgSign=false",
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+        ])
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+fn drain_notices(rx: &mpsc::Receiver<watch::WatchNotice>) {
+    while let Ok(notice) = rx.recv_timeout(Duration::from_millis(800)) {
+        assert!(notice.error.is_none());
+    }
+}
 
 #[test]
 fn observes_external_worktree_head_and_shared_refs() {
@@ -12,29 +44,6 @@ fn observes_external_worktree_head_and_shared_refs() {
     let workspace = fixture.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
     let worktree = workspace.join("agent");
-    let git = |root: &std::path::Path, args: &[&std::ffi::OsStr]| {
-        let result = std::process::Command::new("git")
-            .args([
-                "-c",
-                "core.hooksPath=",
-                "-c",
-                "commit.gpgSign=false",
-                "-c",
-                "user.name=Fixture",
-                "-c",
-                "user.email=fixture@example.invalid",
-            ])
-            .arg("-C")
-            .arg(root)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    };
     fs::create_dir(&main).unwrap();
     git(&main, &["init".as_ref(), "--initial-branch=main".as_ref()]);
     git(
@@ -82,6 +91,100 @@ fn observes_external_worktree_head_and_shared_refs() {
         .expect("Shared refs change was missed")
         .error
         .is_none());
+}
+
+#[test]
+fn refreshes_metadata_watches_when_a_git_pointer_is_retargeted() {
+    let fixture = tempfile::tempdir().unwrap();
+    let workspace = fixture.path().join("workspace");
+    let checkout = workspace.join("checkout");
+    let seed_b = fixture.path().join("seed-b");
+    let metadata_a = fixture.path().join("metadata-a");
+    let metadata_b = fixture.path().join("metadata-b");
+    fs::create_dir_all(&checkout).unwrap();
+    fs::create_dir(&seed_b).unwrap();
+    git(
+        &checkout,
+        &[
+            "init".as_ref(),
+            "--initial-branch=main".as_ref(),
+            "--separate-git-dir".as_ref(),
+            metadata_a.as_os_str(),
+        ],
+    );
+    git(
+        &seed_b,
+        &[
+            "init".as_ref(),
+            "--initial-branch=main".as_ref(),
+            "--separate-git-dir".as_ref(),
+            metadata_b.as_os_str(),
+        ],
+    );
+    git(
+        fixture.path(),
+        &[
+            "--git-dir".as_ref(),
+            metadata_b.as_os_str(),
+            "config".as_ref(),
+            "core.worktree".as_ref(),
+            checkout.as_os_str(),
+        ],
+    );
+
+    let (tx, rx) = mpsc::channel();
+    let watcher = watch::start(&workspace, vec![".git".into()], move |notice| {
+        let _ = tx.send(notice);
+    })
+    .unwrap();
+    fs::write(workspace.join("watch-ready.txt"), "ready").unwrap();
+    assert!(rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("Watcher did not observe readiness write")
+        .error
+        .is_none());
+    drain_notices(&rx);
+
+    fs::remove_file(checkout.join(".git")).unwrap();
+    assert!(rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("Git pointer removal was missed")
+        .error
+        .is_none());
+    drain_notices(&rx);
+    fs::write(
+        checkout.join(".git"),
+        format!("gitdir: {}\n", metadata_b.display()),
+    )
+    .unwrap();
+    assert!(rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("Git pointer replacement was missed")
+        .error
+        .is_none());
+    drain_notices(&rx);
+
+    fs::write(metadata_a.join("HEAD"), "ref: refs/heads/obsolete\n").unwrap();
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_millis(1200)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    fs::write(metadata_a.join("refs/heads/obsolete"), "obsolete\n").unwrap();
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_millis(1200)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    fs::write(metadata_b.join("HEAD"), "ref: refs/heads/current\n").unwrap();
+    assert!(rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("Retargeted Git metadata change was missed")
+        .error
+        .is_none());
+
+    drop(watcher);
+    drain_notices(&rx);
+    fs::write(metadata_b.join("HEAD"), "ref: refs/heads/after-drop\n").unwrap();
+    assert!(rx.recv_timeout(Duration::from_millis(800)).is_err());
 }
 
 #[test]
