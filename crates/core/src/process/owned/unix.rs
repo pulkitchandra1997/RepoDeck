@@ -53,17 +53,25 @@ impl OwnedChild {
             match self.child.wait() {
                 Ok(status) => self.parent_status = Some(status),
                 Err(error) if error.kind() == io::ErrorKind::InvalidInput => {}
-                Err(error) => return Err(error),
+                Err(error) => {
+                    eprintln!("owned process cleanup: direct child wait failed: {error:?}");
+                    return Err(error);
+                }
             }
         }
         if let Err(error) = group_result {
             if error.raw_os_error() != Some(libc::ESRCH) {
+                eprintln!("owned process cleanup: group signal failed: {error:?}");
                 return Err(error);
             }
         }
         let deadline = Instant::now() + CLEANUP_TIMEOUT;
-        while self.group_exists()? {
+        while self.group_exists().map_err(|error| {
+            eprintln!("owned process cleanup: group liveness check failed: {error:?}");
+            error
+        })? {
             if Instant::now() >= deadline {
+                eprintln!("owned process cleanup: group remained live through cleanup deadline");
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "owned process group did not terminate",
