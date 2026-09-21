@@ -102,8 +102,8 @@ pub fn scan_controlled(
         on_entry(&entry);
         result.entries.push(entry);
     }
-    let mut pending = vec![(root.clone(), 0, false)];
-    while let Some((folder, depth, parent_agent)) = pending.pop() {
+    let mut pending = vec![(root.clone(), 0, false, false, true)];
+    while let Some((folder, depth, parent_agent, copilot_only, copilot_scope)) = pending.pop() {
         if cancelled.load(Ordering::Relaxed) {
             return Err("Scan cancelled".into());
         }
@@ -139,9 +139,17 @@ pub fn scan_controlled(
             };
             let name = child.file_name().to_string_lossy().into_owned();
             let agent_config = parent_agent || is_agent(&name);
+            // At workspace and repository roots, hidden .github is only a route to
+            // its direct Copilot instruction file.
+            let copilot_folder =
+                copilot_scope && name == ".github" && !options.show_hidden && !agent_config;
             if name == ".git"
                 || options.excluded.contains(&name)
-                || (!options.show_hidden && name.starts_with('.') && !agent_config)
+                || (copilot_only && name != "copilot-instructions.md")
+                || (!options.show_hidden
+                    && name.starts_with('.')
+                    && !agent_config
+                    && !copilot_folder)
             {
                 continue;
             }
@@ -180,10 +188,14 @@ pub fn scan_controlled(
                     .push(format!("Linked entry not followed: {relative}"));
             }
             let directory = metadata.is_dir();
+            let repository = directory && !link && path.join(".git").exists();
+            if (copilot_only && directory) || (copilot_folder && !directory && !link) {
+                continue;
+            }
             let entry = Entry {
                 path: relative,
                 directory,
-                repository: directory && !link && path.join(".git").exists(),
+                repository,
                 agent_config,
                 size: if directory { 0 } else { metadata.len() },
                 modified_ms: metadata
@@ -196,7 +208,7 @@ pub fn scan_controlled(
             on_entry(&entry);
             result.entries.push(entry);
             if directory && !link {
-                pending.push((path, depth + 1, agent_config));
+                pending.push((path, depth + 1, agent_config, copilot_folder, repository));
             }
         }
     }
