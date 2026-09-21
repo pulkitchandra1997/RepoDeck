@@ -9,6 +9,13 @@ const semver = require('semver');
 
 const allowedArchitectures = new Set(['arm64', 'x86_64']);
 const allowedSignaturePolicies = new Set(['ad-hoc', 'required', 'observe']);
+const thinMachOMagic = new Set(['feedface', 'cefaedfe', 'feedfacf', 'cffaedfe']);
+const fatMachOMagic = new Map([
+  ['cafebabe', 'BE'], ['bebafeca', 'LE'],
+  ['cafebabf', 'BE'], ['bfbafeca', 'LE'],
+]);
+const maximumInventoryDepth = 64;
+const maximumInventoryEntries = 20000;
 // Apple requires CFBundleShortVersionString to contain exactly three numeric components.
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const devicePattern = /^\/dev\/disk\d+(?:s\d+)*$/;
@@ -36,6 +43,7 @@ function parseCliArguments(args) {
     ['--arch', 'expectedArch'],
     ['--sha256', 'expectedSha256'],
     ['--signature', 'signaturePolicy'],
+    ['--evidence', 'evidenceFile'],
   ]);
   assert.ok(args.length > 0 && args.length % 2 === 0, 'Expected name/value CLI arguments');
   const options = {};
@@ -47,6 +55,7 @@ function parseCliArguments(args) {
     options[key] = args[index + 1];
   }
   assert.ok(options.bundleDirectory, '--directory is required');
+  assert.ok(options.evidenceFile, '--evidence is required');
   assert.match(options.expectedVersion || '', versionPattern, '--version must be an Apple short version with three numeric components');
   assert.ok(allowedArchitectures.has(options.expectedArch), '--arch must be arm64 or x86_64');
   options.signaturePolicy ||= 'required';
@@ -162,6 +171,152 @@ async function requireExecutable(file) {
   }
 }
 
+async function prepareEvidenceDestination(file) {
+  assert.equal(typeof file, 'string', 'Evidence file is required');
+  assert.ok(file.length > 0, 'Evidence file is required');
+  const destination = path.resolve(file);
+  await requireRealDirectory(path.dirname(destination), 'Evidence parent');
+  try {
+    await fsp.lstat(destination);
+    throw new Error(`Evidence file already exists: ${destination}`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return destination;
+}
+
+async function inspectRegularFile(file) {
+  const noFollow = fs.constants.O_NOFOLLOW || 0;
+  const handle = await fsp.open(file, fs.constants.O_RDONLY | noFollow);
+  try {
+    const info = await handle.stat();
+    assert.ok(info.isFile(), `App inventory entry changed while being inspected: ${file}`);
+    const header = Buffer.alloc(8);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    const hash = createHash('sha256');
+    for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 })) hash.update(chunk);
+    return {
+      isMachO: isMachOHeader(header, bytesRead),
+      sha256: hash.digest('hex'),
+      size: info.size,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+function isMachOHeader(header, bytesRead) {
+  if (bytesRead < 4) return false;
+  const magic = header.subarray(0, 4).toString('hex');
+  if (thinMachOMagic.has(magic)) return true;
+  const byteOrder = fatMachOMagic.get(magic);
+  if (!byteOrder || bytesRead < 8) return false;
+  const architectureCount = byteOrder === 'BE' ? header.readUInt32BE(4) : header.readUInt32LE(4);
+  return architectureCount > 0 && architectureCount <= 20;
+}
+
+function symlinkTargetScope(app, link, target) {
+  const resolved = path.resolve(path.dirname(link), target);
+  const relative = path.relative(app, resolved);
+  const inside = relative === '' || (
+    relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative)
+  );
+  return inside ? 'inside-bundle' : 'outside-bundle';
+}
+
+function normalizeOtoolOutput(output, file, relativePath) {
+  const lines = output.replaceAll('\r\n', '\n').split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  assert.ok(lines.length > 0, `otool -L produced no output for ${relativePath}`);
+  assert.ok(
+    lines[0] === `${file}:` || lines[0].startsWith(`${file} (architecture `),
+    `otool -L output did not identify ${relativePath}`,
+  );
+  let foundHeader = false;
+  const normalized = lines.map(line => {
+    if (line === `${file}:` || line.startsWith(`${file} (architecture `)) {
+      foundHeader = true;
+      return `${relativePath}${line.slice(file.length)}`;
+    }
+    return line;
+  });
+  assert.ok(foundHeader, `otool -L produced no file header for ${relativePath}`);
+  return `${normalized.join('\n')}\n`;
+}
+
+async function collectAppEvidence(app, run) {
+  const appInventory = [];
+  const machOFiles = [];
+
+  async function visit(directory, segments, depth) {
+    assert.ok(depth <= maximumInventoryDepth, `App inventory exceeds ${maximumInventoryDepth} directory levels`);
+    const entries = await fsp.readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const entry of entries) {
+      assert.ok(appInventory.length < maximumInventoryEntries, `App inventory exceeds ${maximumInventoryEntries} entries`);
+      const entrySegments = [...segments, entry.name];
+      const relativePath = entrySegments.join('/');
+      const absolutePath = path.join(directory, entry.name);
+      const info = await fsp.lstat(absolutePath);
+      if (info.isSymbolicLink()) {
+        const target = await fsp.readlink(absolutePath);
+        appInventory.push({
+          path: relativePath,
+          target,
+          targetScope: symlinkTargetScope(app, absolutePath, target),
+          type: 'symlink',
+        });
+      } else if (info.isDirectory()) {
+        appInventory.push({ path: relativePath, type: 'directory' });
+        await visit(absolutePath, entrySegments, depth + 1);
+      } else if (info.isFile()) {
+        const inspected = await inspectRegularFile(absolutePath);
+        const inventoryEntry = {
+          path: relativePath,
+          sha256: inspected.sha256,
+          size: inspected.size,
+          type: 'file',
+        };
+        appInventory.push(inventoryEntry);
+        if (inspected.isMachO) {
+          const output = run('otool', ['-L', absolutePath]).stdout;
+          machOFiles.push({
+            path: relativePath,
+            sha256: inspected.sha256,
+            otoolL: normalizeOtoolOutput(output, absolutePath, relativePath),
+          });
+        }
+      } else {
+        throw new Error(`Unsupported app inventory entry type: ${relativePath}`);
+      }
+    }
+  }
+
+  await visit(app, [], 0);
+  appInventory.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  machOFiles.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  return { appInventory, machOFiles };
+}
+
+async function writeEvidence(file, evidence) {
+  let created = false;
+  try {
+    const handle = await fsp.open(file, 'wx', 0o600);
+    created = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (created) await fsp.rm(file, { force: true });
+    throw new Error(`Failed to retain DMG evidence at ${file}: ${error.message}`);
+  }
+}
+
 async function validateDmgDirectory(options, dependencies = {}) {
   const {
     bundleDirectory,
@@ -169,6 +324,7 @@ async function validateDmgDirectory(options, dependencies = {}) {
     expectedArch,
     expectedSha256,
     signaturePolicy = 'required',
+    evidenceFile,
   } = options;
   const platform = dependencies.platform || process.platform;
   assert.equal(platform, 'darwin', 'Native DMG validation requires macOS');
@@ -179,6 +335,7 @@ async function validateDmgDirectory(options, dependencies = {}) {
 
   const run = commandRunner(dependencies);
   const writeOutput = dependencies.writeOutput || (value => process.stdout.write(value));
+  const evidenceDestination = await prepareEvidenceDestination(evidenceFile);
   const dmg = await findSingleDmg(bundleDirectory);
   const digest = await sha256(dmg);
   writeOutput(`DMG path: ${dmg}\nDMG SHA-256: ${digest}\n`);
@@ -224,6 +381,13 @@ async function validateDmgDirectory(options, dependencies = {}) {
     const architectures = run('lipo', ['-archs', executable]).stdout.trim().split(/\s+/).filter(Boolean);
     assert.deepEqual(architectures, [expectedArch], `Unexpected executable architecture: ${architectures.join(', ')}`);
 
+    const { appInventory, machOFiles } = await collectAppEvidence(app, run);
+    const executableRelativePath = ['Contents', 'MacOS', info.CFBundleExecutable].join('/');
+    assert.ok(
+      machOFiles.some(entry => entry.path === executableRelativePath),
+      'Expected RepoDeck executable is not a Mach-O regular file',
+    );
+
     const allowSignatureFailure = signaturePolicy === 'observe';
     const verification = run('codesign', ['--verify', '--deep', '--strict', '--verbose=4', app], { allowFailure: allowSignatureFailure });
     const signatureInfo = run('codesign', ['--display', '--verbose=4', app], { allowFailure: allowSignatureFailure });
@@ -234,14 +398,23 @@ async function validateDmgDirectory(options, dependencies = {}) {
     if (signaturePolicy === 'ad-hoc') assert.equal(signature, 'ad-hoc', 'An ad-hoc code signature is required');
     if (signaturePolicy === 'required') assert.notEqual(signature, 'invalid-or-unsigned', 'A valid code signature is required');
 
-    result = {
+    const evidence = {
+      schemaVersion: 1,
       architecture: architectures[0],
+      appInventory,
+      appPath: 'RepoDeck.app',
+      dmgFilename: path.basename(dmg),
+      dmgSha256: digest,
+      machOFiles,
+      signature,
+      version: info.CFBundleShortVersionString,
+    };
+    result = {
+      ...evidence,
       hostArchitecture,
       hostVersion,
       path: dmg,
       sha256: digest,
-      signature,
-      version: info.CFBundleShortVersionString,
     };
   } catch (error) {
     validationError = error;
@@ -266,6 +439,19 @@ async function validateDmgDirectory(options, dependencies = {}) {
   if (cleanupError) throw cleanupError;
   if (validationError) throw validationError;
 
+  const retainedEvidence = {
+    schemaVersion: result.schemaVersion,
+    dmgFilename: result.dmgFilename,
+    dmgSha256: result.dmgSha256,
+    architecture: result.architecture,
+    version: result.version,
+    signature: result.signature,
+    appPath: result.appPath,
+    appInventory: result.appInventory,
+    machOFiles: result.machOFiles,
+  };
+  await writeEvidence(evidenceDestination, retainedEvidence);
+  writeOutput(`Retained DMG evidence: ${evidenceDestination}\n`);
   writeOutput(`DMG validation evidence:\n${JSON.stringify(result, null, 2)}\n`);
   return result;
 }

@@ -5,9 +5,21 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      preview_0_1_1_preview_2_diagnostic:
+        description: Inspect the fixed preview.2 release-candidate DMGs without executing them
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
+  preview-dmg-candidate-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview_0_1_1_preview_2_diagnostic
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/preview-dmg-candidate-diagnostic.yml
   desktop:
     timeout-minutes: 45
     permissions:
@@ -59,7 +71,7 @@ jobs:
           PUBLISHED_DMG_SHA256: ${{ matrix.published_dmg_sha256 }}
         run: |
           set -euo pipefail
-          mkdir -p .tools/published-v0.1.0
+          mkdir -p .tools/published-v0.1.0 .tools/dmg-evidence
           curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 \
             --output ".tools/published-v0.1.0/$PUBLISHED_DMG" \
             "https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/$PUBLISHED_DMG"
@@ -75,6 +87,7 @@ jobs:
           --arch ${{ matrix.dmg_arch }}
           --sha256 ${{ matrix.published_dmg_sha256 }}
           --signature observe
+          --evidence .tools/dmg-evidence/published-v0.1.0-${{ matrix.dmg_arch }}.json
       - name: Record published v0.1.0 native diagnosis
         if: runner.os == 'macOS' && always()
         shell: bash
@@ -153,7 +166,15 @@ jobs:
             --directory "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" \
             --version "$SHORT_VERSION" \
             --arch "${{ matrix.dmg_arch }}" \
-            --signature ad-hoc
+            --signature ad-hoc \
+            --evidence ".tools/dmg-evidence/generated-${{ matrix.dmg_arch }}.json"
+      - name: Upload native macOS DMG evidence
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-dmg-evidence-${{ matrix.target }}
+          path: .tools/dmg-evidence/*.json
+          if-no-files-found: error
       - name: Stage versioned installers
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/stage-release.cjs target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }} ${{ matrix.target }}
