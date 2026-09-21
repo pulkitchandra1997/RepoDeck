@@ -45,20 +45,20 @@ test('preview 3 notes disclose the complete repair scope since public v0.1.0', a
   assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*numeric Apple bundle versions.*ad-hoc.*native disk-image/i.test(fix)));
 });
 
-test('public download docs point to the current preview and distinguish platform signing', async () => {
-  const manifest = JSON.parse(await fs.readFile('package.json', 'utf8'));
+test('public download docs point to published preview 3 and distinguish platform signing', async () => {
+  const publishedVersion = '0.1.1-preview.3';
   const readme = await fs.readFile('README.md', 'utf8');
   const macosTesting = await fs.readFile('docs/releases/macos-preview-testing.md', 'utf8');
-  const releaseUrl = `https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v${manifest.version}`;
+  const releaseUrl = `https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v${publishedVersion}`;
   assert.ok(readme.includes(releaseUrl));
   for (const target of ['x86_64-pc-windows-msvc', 'aarch64-apple-darwin', 'x86_64-apple-darwin']) {
-    assert.ok(readme.includes(`${releaseUrl.replace('/tag/', '/download/')}/${assetName(manifest.version, target)}`));
+    assert.ok(readme.includes(`${releaseUrl.replace('/tag/', '/download/')}/${assetName(publishedVersion, target)}`));
   }
   assert.match(readme, /Windows installer is unsigned/i);
   assert.match(readme, /macOS apps? (?:is|are) ad-hoc signed/i);
   assert.ok(macosTesting.includes(releaseUrl));
   for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
-    assert.ok(macosTesting.includes(`${releaseUrl.replace('/tag/', '/download/')}/${assetName(manifest.version, target)}`));
+    assert.ok(macosTesting.includes(`${releaseUrl.replace('/tag/', '/download/')}/${assetName(publishedVersion, target)}`));
   }
   assert.match(macosTesting, /first-launch,[\s\S]{0,120}remain pending/i);
 });
