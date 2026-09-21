@@ -23,9 +23,15 @@ jobs:
           - os: macos-15
             target: aarch64-apple-darwin
             bundle: dmg
+            dmg_arch: arm64
+            published_dmg: RepoDeck_0.1.0_macos_arm64.dmg
+            published_dmg_sha256: 12e4ef3481454c39744a3991eb72e20d936ac99cc0d5d85cd96c81fdf58bf660
           - os: macos-15-intel
             target: x86_64-apple-darwin
             bundle: dmg
+            dmg_arch: x86_64
+            published_dmg: RepoDeck_0.1.0_macos_x64.dmg
+            published_dmg_sha256: c0b7036b6e0d1e8cd45e306ea35230e48a65f2961af9b3d21b0cc7f8fbe2576b
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,6 +49,46 @@ jobs:
       - run: npm ci
       - run: npm run check:release
       - run: npm run test:release
+      - name: macOS DMG validator regressions
+        run: node --test scripts/mac/validate-dmg.test.cjs
+      - name: Download published v0.1.0 DMG for native diagnosis
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PUBLISHED_DMG: ${{ matrix.published_dmg }}
+          PUBLISHED_DMG_SHA256: ${{ matrix.published_dmg_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/published-v0.1.0
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 \
+            --output ".tools/published-v0.1.0/$PUBLISHED_DMG" \
+            "https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/$PUBLISHED_DMG"
+          printf '%s  %s\n' "$PUBLISHED_DMG_SHA256" ".tools/published-v0.1.0/$PUBLISHED_DMG" | shasum -a 256 --check -
+      - name: Inspect published v0.1.0 DMG natively without executing it
+        id: published_dmg_validation
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: >-
+          node scripts/mac/validate-dmg.cjs
+          --directory .tools/published-v0.1.0
+          --version 0.1.0
+          --arch ${{ matrix.dmg_arch }}
+          --sha256 ${{ matrix.published_dmg_sha256 }}
+          --signature observe
+      - name: Record published v0.1.0 native diagnosis
+        if: runner.os == 'macOS' && always()
+        shell: bash
+        env:
+          PUBLISHED_DMG: ${{ matrix.published_dmg }}
+          PUBLISHED_DMG_OUTCOME: ${{ steps.published_dmg_validation.outcome }}
+        run: |
+          {
+            echo "### Published v0.1.0 DMG diagnosis"
+            echo
+            echo "- Artifact: \`$PUBLISHED_DMG\`"
+            echo "- Native validation outcome: \`$PUBLISHED_DMG_OUTCOME\`"
+            echo "- This historical diagnostic does not execute the downloaded app."
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: npm run test:notices
       - name: Frontend tests
         if: matrix.target != 'x86_64-apple-darwin'
@@ -89,7 +135,25 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run test:repository-metadata
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+      - name: Build ad-hoc signed macOS DMG
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+      - name: Validate generated macOS DMG before staging or upload
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_VERSION="$(node -p "require('./scripts/mac/validate-dmg.cjs').appleShortVersion(require('./package.json').version)")"
+          node scripts/mac/validate-dmg.cjs \
+            --directory "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" \
+            --version "$SHORT_VERSION" \
+            --arch "${{ matrix.dmg_arch }}" \
+            --signature ad-hoc
       - name: Stage versioned installers
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/stage-release.cjs target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }} ${{ matrix.target }}
