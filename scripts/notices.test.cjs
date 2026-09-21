@@ -368,7 +368,7 @@ test('fallback and bundle directory links cannot redirect reads or writes', asyn
   assert.deepEqual(await fs.readdir(path.join(f.root, 'other')), []);
 });
 
-test('checked-in upstream evidence validates offline and retains every explicit blocker', async t => {
+test('checked-in upstream evidence validates offline and records the completed native review', async t => {
   const f = await fixture(t);
   const checkedIn = JSON.parse(await fs.readFile(path.join(__dirname, 'license-fallbacks/manifest.json')));
   assert.deepEqual(checkedIn.packages.find(entry => entry.name === 'selectors').sourceOffer, {
@@ -412,31 +412,30 @@ test('checked-in upstream evidence validates offline and retains every explicit 
   const metadata = () => ({ version: 1, workspace_members: ['app'],
     packages: [{ id: 'app', name: 'repodeck-desktop' }, ...packages],
     resolve: { nodes: [{ id: 'app', deps: packages.map(pkg => ({ pkg: pkg.id, dep_kinds: [{ kind: null }] })) }, ...nodes] } });
-  const doc = JSON.parse(await generateNotices({ root: f.root, metadata, inventory: true }));
+  const doc = JSON.parse(await generateNotices({ root: f.root, metadata }));
   assert.equal(doc.collectionComplete, true);
-  assert.equal(doc.releaseGateComplete, false);
-  const objcBlockers = ['block2', 'dispatch2', 'objc2', 'objc2-app-kit', 'objc2-core-foundation',
+  assert.equal(doc.releaseGateComplete, true);
+  const objcReviewed = ['block2', 'dispatch2', 'objc2', 'objc2-app-kit', 'objc2-core-foundation',
     'objc2-core-graphics', 'objc2-encode', 'objc2-exception-helper', 'objc2-foundation',
     'objc2-io-surface', 'objc2-web-kit'];
   assert.deepEqual(doc.unresolved, []);
-  assert.deepEqual(doc.pendingReview.map(pkg => pkg.name).sort(), objcBlockers.sort());
+  assert.deepEqual(doc.pendingReview, []);
   const selectors = doc.packages.find(pkg => pkg.name === 'selectors');
   assert.deepEqual(selectors.sourceOffer, manifest.packages.find(entry => entry.name === 'selectors').sourceOffer);
   assert.ok(!selectors.unresolved);
   assert.ok(!doc.packages.find(pkg => pkg.name === 'webview2-com-sys').unresolved);
-  for (const name of objcBlockers) {
+  for (const name of objcReviewed) {
     const pkg = doc.packages.find(candidate => candidate.name === name);
     const files = pkg.texts.filter(text => text.provenance.kind === 'pinned-upstream' &&
       text.provenance.applicability).map(text => text.file).sort();
     assert.deepEqual(files, pkg.license === 'MIT' ? ['LICENSE-MIT.txt'] :
       ['LICENSE-APACHE.txt', 'LICENSE-MIT.txt', 'LICENSE-ZLIB.txt']);
-    assert.match(pkg.reviewPending, /Issue #23 concerns prospective relicensing only/i);
-    assert.match(pkg.reviewPending, /not a prerequisite for the current declared licenses/i);
-    assert.match(pkg.reviewPending, /generated Rust interfaces/i);
-    assert.match(pkg.reviewPending, /final macOS bundle file\/import inventory/i);
-    assert.match(pkg.reviewPending, /historical generator provenance is not a collector prerequisite/i);
-    assert.doesNotMatch(pkg.reviewPending, /must establish the exact SDK inputs/i);
-    assert.doesNotMatch(pkg.reviewPending, /permissions outstanding|prohibited|legal\/maintainer/i);
+    assert.equal(pkg.reviewPending, undefined);
+    const review = manifest.packages.find(entry => entry.name === name);
+    assert.equal(review.status, 'text-reviewed');
+    assert.match(review.reason, /preview-2 native bundle evidence/i);
+    assert.match(review.reason, /no SDK payload/i);
+    assert.match(review.reason, /not legal clearance/i);
   }
   const actualSources = new Set(doc.packages.flatMap(pkg => pkg.texts).filter(text => text.provenance.kind === 'pinned-upstream').map(text => `${text.provenance.url}:${text.sha256}`));
   assert.equal(actualSources.size, manifest.sources.length);

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "dmgFilename": "RepoDeck_0.1.1-preview.2_macos_arm64.dmg",
+  "dmgSha256": "cba596d36e73af2a03c256cabffce82f41d919b30472d75842b969c64b661fc9",
+  "architecture": "arm64",
+  "version": "0.1.1",
+  "signature": "ad-hoc",
+  "appPath": "RepoDeck.app",
+  "appInventory": [
+    {
+      "path": "Contents",
+      "type": "directory"
+    },
+    {
+      "path": "Contents/Info.plist",
+      "sha256": "aaeaad3fc5d5db3f153432912d8662698c95e5703d7280104f4b8561b340ac35",
+      "size": 916,
+      "type": "file"
+    },
+    {
+      "path": "Contents/MacOS",
+      "type": "directory"
+    },
+    {
+      "path": "Contents/MacOS/repodeck-desktop",
+      "sha256": "c8d9eb7289c83acd3d8cb1467735e56ba623dc8093131218f81d8413cc8509d6",
+      "size": 12385376,
+      "type": "file"
+    },
+    {
+      "path": "Contents/_CodeSignature",
+      "type": "directory"
+    },
+    {
+      "path": "Contents/_CodeSignature/CodeResources",
+      "sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b",
+      "size": 2200,
+      "type": "file"
+    }
+  ],
+  "machOFiles": [
+    {
+      "path": "Contents/MacOS/repodeck-desktop",
+      "sha256": "c8d9eb7289c83acd3d8cb1467735e56ba623dc8093131218f81d8413cc8509d6",
+      "otoolL": "Contents/MacOS/repodeck-desktop:\n\t/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit (compatibility version 45.0.0, current version 2575.60.5)\n\t/System/Library/Frameworks/WebKit.framework/Versions/A/WebKit (compatibility version 1.0.0, current version 621.2.5)\n\t/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices (compatibility version 1.0.0, current version 65.0.0)\n\t/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics (compatibility version 64.0.0, current version 1889.5.3)\n\t/System/Library/Frameworks/Carbon.framework/Versions/A/Carbon (compatibility version 2.0.0, current version 170.0.0)\n\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 1.5.0)\n\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 3502.1.255)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)\n\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (compatibility version 300.0.0, current version 3502.1.255)\n\t/usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)\n\t/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices (compatibility version 1.0.0, current version 1226.0.0)\n\t/usr/lib/libiconv.2.dylib (compatibility version 7.0.0, current version 7.0.0)\n\t/System/Library/Frameworks/ColorSync.framework/Versions/A/ColorSync (compatibility version 1.0.0, current version 3777.4.1)\n"
+    }
+  ]
+}

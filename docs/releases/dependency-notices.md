@@ -52,12 +52,11 @@ question outside notice collection. Neither is a semantic license audit. This
 separation prevents a complete set of declared-license texts from being reported
 as missing merely because package-content or distribution review remains open.
 
-## Future Notice Packaging
+## Release Notice Packaging
 
 [The notice-specific Tauri overlay](../../src-tauri/tauri.notices.conf.json) runs
 strict collection before the frontend build and maps the fresh artifact to
-`THIRD-PARTY-NOTICES.json` in the application resource directory. For example,
-after the blockers below and distribution review are resolved:
+`THIRD-PARTY-NOTICES.json` in the application resource directory. For example:
 
 ```sh
 npm run package:notices -- --target x86_64-pc-windows-msvc --bundles nsis -- --locked
@@ -72,13 +71,13 @@ another build. Linked output directories are rejected. The build must succeed in
 the same invocation; file existence alone is never a gate. Do not use a direct
 `tauri bundle` invocation to bypass the pre-build collection step.
 
-The `package:notices` command selects this overlay. It remains intentionally
-opt-in while distribution review is pending. The default development/preview
-build and CI do not yet bundle the review candidate.
-Enabling this overlay for every future release and inspecting the resulting NSIS
-and both DMG resources remain acceptance work after review. The existing preview
-limitation remains disclosed; no current installer is certified by this change.
-Never run installer/uninstaller automation in the normal Windows account.
+The `package:notices` command selects this overlay. Release CI uses it for all
+three package targets after fetching the complete locked Cargo source union.
+Windows CI extracts the NSIS archive with 7-Zip and macOS CI mounts each DMG;
+both paths verify the exact generated notice hash without executing an installer
+or application. Preview 2 did not contain this resource. A later candidate is
+acceptable only after all three resource assertions pass. Never run
+installer/uninstaller automation in the normal Windows account.
 
 ## Coverage And Bounds
 
@@ -175,15 +174,17 @@ The fallback manifest records source-text/provenance inspections by Codex on
 2026-09-15, 2026-09-16 and 2026-09-21. `text-reviewed` means that inspection only;
 it does not represent independent human review or legal clearance. Twenty-two
 GitHub source files at thirteen commits and three Microsoft SDK archive texts
-support 22 exact crate records, including evidence with pending review.
+support 22 exact crate records. Eleven records include the accepted bounded
+native-evidence review described below.
 
 - `webview2-com@0.38.2`, `webview2-com-macros@0.8.1`, and
   `webview2-com-sys@0.38.2`: repository-root MIT text with Bill Avery's copyright.
   Published VCS revisions and workspace manifests bind it to those crates.
   The sys crate also collects Microsoft's SDK license/NOTICE after verifying every
-  loader hash. Its collector gate is resolved; actual packaged notice delivery and
-  separately deployed Runtime review remain pending release work. The SDK terms do
-  not establish separately deployed Runtime terms.
+  loader hash. Its collector gate is resolved; release CI requires exact packaged
+  notice delivery. Separately deployed Runtime behavior remains outside the
+  notice artifact. The SDK terms do not establish separately deployed Runtime
+  terms.
 - `alloc-stdlib@0.2.4`: Dropbox's repository-root BSD-3-Clause text, matched to
   the `alloc-stdlib/Cargo.toml` declaration at its published revision.
 - Five UNIC 0.9.0 crates: actual repository-root MIT/Apache texts plus
@@ -202,8 +203,8 @@ support 22 exact crate records, including evidence with pending review.
   alternative. The later files are recorded as the source of full terms, not
   represented as files shipped in the older crates. Together with each exact
   published-revision declaration, this completes text collection for the current
-  declared licenses without inventing a licensing choice. The records retain a
-  separate package-content/distribution review described below.
+  declared licenses without inventing a licensing choice. Their bounded
+  package-content review is recorded below.
 - `selectors@0.36.1`: its pinned `selectors/lib.rs` explicitly refers to
   `https://mozilla.org/MPL/2.0/`. Mozilla's official plaintext download matched
   `mozilla/bedrock` commit `a15178c3c7c976c67b3641af77cae0b66093a175`,
@@ -217,7 +218,7 @@ revisions, package paths, source texts and hashes. Inspect the upstream paths at
 those commits when changing a record. Any dependency update requires new evidence;
 do not relabel a blocked record merely to obtain a passing build.
 
-## Current Evidence And Blockers
+## Current Evidence And Review
 
 On 2026-09-21, Windows, Node.js 24.19.0 and Cargo 1.98.1, locked offline structured
 metadata succeeded for all three targets (270 Windows and 264 reachable nodes for
@@ -228,11 +229,11 @@ The real inventory now finishes: 299 distinct package/version records (294 Cargo
 and five npm). Target membership is 268 third-party Cargo packages for Windows,
 262 for each macOS architecture, and five npm packages on every target.
 The schema-v3 candidate reports `collectionComplete: true`, zero `unresolved`
-notice entries, 11 `pendingReview` entries, and `releaseGateComplete: false`.
+notice entries, zero `pendingReview` entries, and `releaseGateComplete: true`.
 For the lockfiles inherited from `30056dd` and the branch after normal-merging
-`origin/main` at `a363fe7` (`0.1.1-preview.2`), the updated inventory is
-3,019,713 bytes with SHA-256
-`0ec2592563ef1deac1a625b0821a56da25b6e51932fda2612ae0aec7cc6f70ff`.
+`origin/main` through `ce52ead` (`0.1.1-preview.2`), the reviewed strict artifact
+is 3,001,441 bytes with SHA-256
+`27828632b0be324fa1eb8df17eedfd8c736c5e86ec5b5c5b465fa0616f988b87`.
 All individual text hashes were recomputed and verified. Earlier September 15 and
 16 artifacts are historical evidence, not the current collection.
 
@@ -249,11 +250,11 @@ Collector evidence is now complete for `selectors@0.36.1` and
 and verify SHA-256
 `c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c`.
 The WebView record retains the exact Microsoft.Web.WebView2 1.0.3650.58 LICENSE,
-NOTICE and nuspec after byte-verifying all nine loader files. Actual resource
-inspection and the chosen [Runtime deployment](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
-remain pending; neither collector result is legal clearance.
+NOTICE and nuspec after byte-verifying all nine loader files. The chosen
+[Runtime deployment](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
+remains separate release behavior; neither collector result is legal clearance.
 
-The 11 pending records are `block2`, `dispatch2`, `objc2`, `objc2-encode`,
+The 11 reviewed records are `block2`, `dispatch2`, `objc2`, `objc2-encode`,
 `objc2-exception-helper`, `objc2-foundation`, `objc2-app-kit`,
 `objc2-core-foundation`, `objc2-core-graphics`, `objc2-io-surface`, and
 `objc2-web-kit`. All texts for their declared licenses are collected. The
@@ -319,78 +320,56 @@ copies Cargo registry source nor the SDK into the application. The normal bundle
 has no configured resources. The notice overlay adds only
 `THIRD-PARTY-NOTICES.json`.
 
-PR workflow run
-[35584015219](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/35584015219)
-for commit `803fd1dd61b0e0c24002287aea366f1bca7da52a` built and mounted both
-macOS DMGs natively without executing the application.
-The arm64 DMG SHA-256 is
-`d4df50be3f59be71d5d7d07364e179e4ab5b4fbed2f6fd4b60f906744a421a22`;
-the x86_64 DMG SHA-256 is
-`74807a703646b6f73352a1b62934dac44da15325fe72fc582fbd3e59d60e8828`.
-Both contained a thin Mach-O application with the expected architecture, and
-`codesign --display --verbose=4` reported zero sealed resource files. The uploaded
-artifacts contain the two DMGs and Tauri DMG support files, but the workflow
-deletes the intermediate `.app` and does not retain a recursive application-file
-or `otool -L` inventory. Therefore this is strong evidence against separately
-bundled crate source or SDK resources, but it is not a complete binary-content
-record.
+### Preview-2 Native Evidence
 
-The exact remaining factual uncertainty is now bounded to two questions:
+The exact `0.1.1-preview.2` evidence retained by the issue #56 workflow contains
+one record for each architecture:
 
-1. Does the compiled RepoDeck executable retain Apple-provided expression from
-   the generated bindings beyond interface names, signatures, constants, and the
-   small amount of header-derived documentation observed in the published source?
-2. Does a native recursive file inventory and Mach-O import listing of the exact
-   release-candidate `.app` show anything beyond RepoDeck files and references to
-   macOS system frameworks?
+| Architecture | DMG SHA-256 | Evidence-file SHA-256 |
+| --- | --- | --- |
+| [arm64](evidence/0.1.1-preview.2-macos-arm64.json) | `cba596d36e73af2a03c256cabffce82f41d919b30472d75842b969c64b661fc9` | `0b098b6c51422c1c74aaf9d7f4c7313bcef6a1dd17d7d706feddeac2ce6f2623` |
+| [x86_64](evidence/0.1.1-preview.2-macos-x86_64.json) | `14208190b5a1cb0c1996ebd4e01736a030ad58a9f0954cc7c21be299db3969c8` | `ecf5eae02343ebd1bbbfb00d0214900018b5ffc2d79a1cd81be397f3b6884fec` |
 
-Question 2 is directly answerable by retaining `find` and `otool -L` output from
-the already-native CI validation; it does not require running an installer or the
-application. Question 1 is the narrow maintainer/legal classification decision.
-The collector does not require otherwise unavailable historical generator logs
-for every wrapper unless review identifies a specific retained item whose source
-must be traced. Upstream issue #23 supplies no answer to either question.
+Both sorted application inventories contain only `Contents/Info.plist`, the
+`Contents/MacOS/repodeck-desktop` executable, and
+`Contents/_CodeSignature/CodeResources`, plus their parent directories. The only
+Mach-O file is the RepoDeck executable. Every `otool -L` import is under
+`/System/Library` or `/usr/lib`; there is no bundled SDK header, library, linker
+stub, crate source, or other SDK payload. Preview 2 also has no notice resource,
+which is why packaging the reviewed artifact remains required.
 
-Strict collection and the notice packaging pre-build step deliberately continue
-to fail because `releaseGateComplete` is false. The schema-v3 inventory is a full
-notices candidate with explicit ambiguity, not a distributable artifact or legal
-clearance. Issue #17 is **not closed**.
+### AI-Assisted Engineering Review
 
-### Expedited Maintainer Decision
+The pinned package declarations and collected texts establish MIT for `block2`,
+`objc2`, `objc2-foundation`, and `objc2-encode`, and retain every declared
+alternative for the other seven records without making a licensing choice. The
+published crate inspection and exact compiled-application inventories identify
+no concrete conflicting notice or source-delivery obligation for the artifacts
+being packaged. On that bounded engineering evidence, all 11 records are
+`text-reviewed` and strict notice generation may proceed. This conclusion was
+produced with AI assistance and accepted as a bounded engineering record; it is
+not represented as professional legal review.
 
-The minimally sufficient release package-content record is:
+This records an engineering release decision, not legal clearance. It does not
+decide hypothetical treatment of material absent from the package, and it does
+not require unavailable historical generator tracing. Re-review is required if
+the dependency versions, upstream declarations, linked libraries, generated
+content, or bundle inventory change, or if a reviewer identifies a specific
+retained file and a concrete conflicting obligation.
 
-1. Preserve the schema-v3 candidate containing all 299 dependency records, the
-   exact MIT terms for the four MIT declarations, all three declared alternatives
-   for the seven `OR` declarations without selecting one, and every pinned
-   declaration/provenance hash.
-2. Accept one native CI evidence file per macOS architecture containing a sorted
-   recursive `.app` file inventory and `otool -L` output for every Mach-O regular
-   file, bound to the version, architecture, and DMG SHA-256. Open
-   [issue #56](https://github.com/pulkitchandra1997/RepoDeck/issues/56) owns the
-   scripts and workflow changes that produce this evidence; they are not part of
-   this branch.
-3. Ask the maintainer or qualified reviewer only whether the observed generated
-   interfaces/documentation and compiled references can be treated as an
-   application built against Apple interfaces under the applicable agreement, or
-   whether a specific additional notice, permission, or source exclusion is
-   required. Record the exact requested item if the answer is no.
+### Packaging Acceptance
 
-If that review accepts the bounded evidence, change the 11 manifest records from
-`blocked` to `text-reviewed`, run strict collection, enable the notice overlay in
-the release workflow, and inspect the notice resource in both DMGs. If review
-requires more, the blocker must name the specific file/material and requested
-evidence; “recover all historical provenance” is not an actionable gate.
-
-Evidence from issue #56 is ready for acceptance only when both architectures
-have a successful, separately retained record for the exact release candidate;
-the inventory does not follow links outside the application; every discovered
-Mach-O regular file has an import listing; and missing files, command failures,
-or incomplete output fail closed. The reviewer should record whether the evidence
-shows only RepoDeck application files and macOS system-framework references. Any
-additional file or import must be named and mapped to the dependency/notice review
-before changing a manifest status. Successful CI or evidence generation alone
-must not change any of the 11 review statuses.
+Issue #17 remains open until the strict artifact is bundled and verified on all
+three targets. Each matrix runner must fetch the three locked target closures
+and the unfiltered locked dependency set before offline generation; Cargo's
+targeted fetch alone can omit packages still visited by filtered offline
+metadata. Packaging must use `src-tauri/tauri.notices.conf.json`. Windows CI
+extracts the NSIS archive with 7-Zip without executing it and verifies the root
+`THIRD-PARTY-NOTICES.json`
+against the generated SHA-256 and release-complete schema. macOS CI passes that
+same generated hash to the native DMG validator and requires the exact file at
+`Contents/Resources/THIRD-PARTY-NOTICES.json`. Missing, linked, altered,
+incomplete, or pending-review resources fail the build.
 
 The node:test fixtures cover production/scoped/nested/peer resolution,
 development exclusion, target filtering and union, declared files, standard
@@ -407,6 +386,12 @@ to bundle unresolved, pending-review, or stale output. The real upstream corpus
 is validated offline in fixtures. These fixtures do not constitute native
 installer verification.
 
+### Historical Pre-Review Runs
+
+The following runs document the collector's earlier fail-closed state before the
+preview-2 native evidence was accepted. They are retained as regression history,
+not current blockers.
+
 The September 21 post-merge Windows run, after normal-merging `origin/main` at
 `a363fe7` and preserving `0.1.1-preview.2`, passed `npm run test:notices`
 (32 tests), `npm run test:release` (13 tests), `npm test` (131 tests),
@@ -414,16 +399,16 @@ The September 21 post-merge Windows run, after normal-merging `origin/main` at
 `npm run check:release`, `cargo test --locked -p repodeck-core` (eight ignored
 environment/manual fixtures), `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, the local relative-link
-check, and `git diff --check`. The real schema-v3 inventory produced the exact
-size/hash above with zero unresolved notices and 11 pending reviews. Strict
+check, and `git diff --check`. The then-current schema-v3 inventory produced
+3,019,713 bytes with zero unresolved notices and 11 pending reviews. Strict
 collection exited 1 and wrote no artifact. No installer or application was run.
 
 The September 21 regressions cover exact source-offer URL/hash/instructions,
 direct cached-archive verification, shipped and omitted repository-root
 declarations, full multi-license applicability without choosing an alternative,
 and the strict notice-packaging command. `node --test scripts/notices.test.cjs
-scripts/release.test.cjs` passed all 45 tests. The real `--inventory` collection
-succeeded with the evidence above; strict collection exited 1 for the 11 recorded
+scripts/release.test.cjs` passed all 45 tests. The historical `--inventory`
+collection succeeded; strict collection exited 1 for the 11 then-recorded
 objc2 distribution reviews and created no bundle notice artifact.
 
 The earlier September 21 baseline also passed `npm test` (131 tests), `npm run build`,
@@ -446,6 +431,9 @@ was created. This verifies rejection only, not successful resource inclusion.
 Rust tests/formatting/Clippy and browser/native application checks were not run
 locally for this notice-only change; the required desktop CI remains applicable.
 
-Legal/distribution review, adoption of the packaging overlay in the release
-workflow, actual NSIS/DMG resource inspection and isolated installer lifecycle
-verification remain pending. This tooling alone does not close the release gate.
+The current strict-generation proof and packaging acceptance section supersede
+those historical pending-review results. The remaining issue #17 engineering
+gate is a successful all-target CI run proving exact notice-resource inclusion.
+Isolated installer lifecycle verification remains separate because archive and
+DMG resource inspection do not establish installability. This record does not
+claim legal clearance.

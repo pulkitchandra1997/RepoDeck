@@ -1,6 +1,6 @@
 [package]
 name = "repodeck-desktop"
-version = "0.1.1-preview.2"
+version = "0.1.1-preview.3"
 edition = "2021"
 license = "MIT"
 

@@ -21,6 +21,30 @@ test('notice packaging command selects strict collection and maps the fresh arti
     { '../.tools/notices/THIRD-PARTY-NOTICES.json': 'THIRD-PARTY-NOTICES.json' });
 });
 
+test('desktop packaging fetches the complete notice union and verifies bundled resources', async () => {
+  const workflow = await fs.readFile('.github/workflows/verify.yml', 'utf8');
+  assert.match(workflow, /^\s*cargo fetch --locked\s*$/m);
+  for (const target of targets) {
+    assert.match(workflow, new RegExp(`cargo fetch --locked --target ${target}`));
+  }
+  assert.doesNotMatch(workflow, /npx tauri build --target/);
+  assert.match(workflow, /npm run package:notices -- --target/);
+  assert.match(workflow, /7z[^\r\n]* x /i);
+  assert.match(workflow, /verify-nsis-notices\.cjs/);
+  assert.match(workflow, /ICON_SHA256=.*src-tauri\/icons\/icon\.icns/);
+  assert.match(workflow, /--icon-sha256 "\$ICON_SHA256"/);
+  assert.match(workflow, /--notices-sha256/);
+});
+
+test('preview 3 notes disclose the complete repair scope since public v0.1.0', async () => {
+  const notes = JSON.parse(await fs.readFile('docs/releases/versions/0.1.1-preview.3.json', 'utf8'));
+  assert.ok(notes.fixes.some(fix => /native application icon/i.test(fix)));
+  assert.ok(notes.features.some(feature => /since.*v0\.1\.0.*Copilot instructions/i.test(feature)));
+  assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*saved settings/i.test(fix)));
+  assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*padded searches/i.test(fix)));
+  assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*numeric Apple bundle versions.*ad-hoc.*native disk-image/i.test(fix)));
+});
+
 test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
   const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
   const version = require('semver').parse(config.version);
