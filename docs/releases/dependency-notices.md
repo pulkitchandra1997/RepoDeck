@@ -230,7 +230,7 @@ and five npm). Target membership is 268 third-party Cargo packages for Windows,
 The schema-v3 candidate reports `collectionComplete: true`, zero `unresolved`
 notice entries, 11 `pendingReview` entries, and `releaseGateComplete: false`.
 For the lockfiles inherited from `30056dd` and the branch after merging
-`origin/main` at `1978fed`, the updated inventory is 3,019,713 bytes with SHA-256
+`origin/main` at `f7248da`, the updated inventory is 3,019,713 bytes with SHA-256
 `0ec2592563ef1deac1a625b0821a56da25b6e51932fda2612ae0aec7cc6f70ff`.
 All individual text hashes were recomputed and verified. Earlier September 15 and
 16 artifacts are historical evidence, not the current collection.
@@ -318,9 +318,10 @@ copies Cargo registry source nor the SDK into the application. The normal bundle
 has no configured resources. The notice overlay adds only
 `THIRD-PARTY-NOTICES.json`.
 
-Current-head workflow run
+PR workflow run
 [35584015219](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/35584015219)
-built and mounted both macOS DMGs natively without executing the application.
+for commit `803fd1dd61b0e0c24002287aea366f1bca7da52a` built and mounted both
+macOS DMGs natively without executing the application.
 The arm64 DMG SHA-256 is
 `d4df50be3f59be71d5d7d07364e179e4ab5b4fbed2f6fd4b60f906744a421a22`;
 the x86_64 DMG SHA-256 is
@@ -389,8 +390,19 @@ incompatible resolutions, UNC paths and early aggregate-budget rejection.
 Fallback regressions additionally cover exact bytes/hashes/provenance, mutable
 revisions, identity drift, duplicate records, unsafe paths, size bounds, linked
 directories, explicit ambiguous terms, complete target traversal, and refusal
-to bundle unresolved/stale output. The real upstream corpus is validated offline
-in fixtures. These fixtures do not constitute native installer verification.
+to bundle unresolved, pending-review, or stale output. The real upstream corpus
+is validated offline in fixtures. These fixtures do not constitute native
+installer verification.
+
+The September 21 post-merge Windows run, after normal-merging `origin/main` at
+`f7248da`, passed `npm run test:notices` (32 tests), `npm run test:release`
+(13 tests), `npm test` (131 tests), `npm run build` (1,884 modules),
+`npm run check:release`, `cargo test --locked -p repodeck-core` (eight ignored
+environment/manual fixtures), `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, the local relative-link
+check, and `git diff --check`. The real schema-v3 inventory produced the exact
+size/hash above with zero unresolved notices and 11 pending reviews. Strict
+collection exited 1 and wrote no artifact. No installer or application was run.
 
 The September 21 regressions cover exact source-offer URL/hash/instructions,
 direct cached-archive verification, shipped and omitted repository-root
@@ -398,15 +410,17 @@ declarations, full multi-license applicability without choosing an alternative,
 and the strict notice-packaging command. `node --test scripts/notices.test.cjs
 scripts/release.test.cjs` passed all 45 tests. The real `--inventory` collection
 succeeded with the evidence above; strict collection exited 1 for the 11 recorded
-objc2 decisions and created no bundle notice artifact.
+objc2 distribution reviews and created no bundle notice artifact.
 
-The September 21 baseline also passed `npm test` (131 tests), `npm run build`,
+The earlier September 21 baseline also passed `npm test` (131 tests), `npm run build`,
 `node scripts/check-release.cjs`, `cargo test --locked -p repodeck-core` (seven
 ignored environment/manual suites), `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, the local documentation
 link check, and `git diff --check`. Browser/native application checks and installer
-lifecycle tests were not run; this change does not provide native distribution
-evidence.
+lifecycle tests were not run locally. Hosted workflow run 35584015219 passed all
+three desktop targets and supplies the bounded DMG evidence above for commit
+`803fd1d`; required hosted verification for the new post-merge revision remains
+pending until it is pushed.
 
 Earlier September 15/16 Windows checks: `node --test scripts/notices.test.cjs
 scripts/release.test.cjs` (28 passed), `npm test` (118 passed), `npm run build`,
