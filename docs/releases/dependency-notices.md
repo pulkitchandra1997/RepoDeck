@@ -221,7 +221,7 @@ and five npm). Target membership is 268 third-party Cargo packages for Windows,
 262 for each macOS architecture, and five npm packages on every target.
 The inventory is incomplete for distribution: 11 explicit blockers remain.
 For the lockfiles inherited from `30056dd` and the branch after merging
-`origin/main` at `69158c2`, the updated inventory is 3,009,040 bytes with SHA-256
+`origin/main` at `ca382ca`, the updated inventory is 3,009,040 bytes with SHA-256
 `823da31db3ad1d69c7fcbc7a250e73c61af4eb2cd17c45cca75199b06804b5b0`.
 All individual text hashes were recomputed and verified. Earlier September 15 and
 16 artifacts are historical evidence, not the current collection.
