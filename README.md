@@ -26,6 +26,11 @@ This is an experimental prerelease, not a stable release or installation certifi
 security warning and macOS may block launch. Do not disable operating-system
 security controls. On a Mac, use Apple menu > About This Mac to check the processor.
 
+**macOS installation report under investigation:** a user reported a damaged or
+corrupt download. [Issue #46](https://github.com/pulkitchandra1997/RepoDeck/issues/46)
+tracks native image validation. Matching checksums do not prove that an image
+mounts or that macOS permits the application to launch.
+
 Choose the installer for your platform. The release's `.sha256` checksums and
 `.json` build records are optional verification files. GitHub's source-code archives
 are for developers, not application installation. Git is required for repository
