@@ -46,32 +46,21 @@ impl OwnedChild {
         if self.finished {
             return Ok(());
         }
-        let group_result = self.signal_group(libc::SIGKILL);
+        // Darwin can report EPERM for a group whose only member is already exiting.
+        // The bounded liveness check below is the authoritative cleanup result.
+        let _ = self.signal_group(libc::SIGKILL);
         // Also target the exact child handle in case it deliberately changed groups.
         let _ = self.child.kill();
         if self.parent_status.is_none() {
             match self.child.wait() {
                 Ok(status) => self.parent_status = Some(status),
                 Err(error) if error.kind() == io::ErrorKind::InvalidInput => {}
-                Err(error) => {
-                    eprintln!("owned process cleanup: direct child wait failed: {error:?}");
-                    return Err(error);
-                }
-            }
-        }
-        if let Err(error) = group_result {
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                eprintln!("owned process cleanup: group signal failed: {error:?}");
-                return Err(error);
+                Err(error) => return Err(error),
             }
         }
         let deadline = Instant::now() + CLEANUP_TIMEOUT;
-        while self.group_exists().map_err(|error| {
-            eprintln!("owned process cleanup: group liveness check failed: {error:?}");
-            error
-        })? {
+        while self.group_exists()? {
             if Instant::now() >= deadline {
-                eprintln!("owned process cleanup: group remained live through cleanup deadline");
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "owned process group did not terminate",
