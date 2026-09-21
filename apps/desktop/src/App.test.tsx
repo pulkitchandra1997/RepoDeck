@@ -814,13 +814,15 @@ describe("Workspace experience", () => {
   it("shows streamed files during scanning and restores the previous snapshot on cancellation", async () => {
     const api = backend();
     let calls = 0;
-    let publish: (progress: ScanProgress) => void = () => {};
+    let publish!: (progress: ScanProgress) => void;
+    let markManualScanReady!: () => void;
+    const manualScanReady = new Promise<void>(resolve => { markManualScanReady = resolve; });
     let rejectScan: (error: Error) => void = () => {};
     const progress: ScanProgress = { phase: 'discovery', entries: [{ ...snapshot.entries[0], path: 'partial.txt' }], repository: null, entryCount: 1, repositoryCount: 0, inspectedCount: 0 };
     api.scan = async (_id, onProgress) => {
       if (++calls === 1) return snapshot;
       publish = onProgress!;
-      publish(progress);
+      markManualScanReady();
       return new Promise((_resolve, reject) => { rejectScan = reject; });
     };
     api.cancelScan = async () => rejectScan(new Error('Scan cancelled'));
@@ -829,6 +831,8 @@ describe("Workspace experience", () => {
     await screen.findByRole('button', { name: /api.*main/ });
     await userEvent.click(screen.getByRole('tab', { name: 'Files' }));
     await userEvent.click(screen.getByRole('button', { name: 'Refresh workspace' }));
+    await manualScanReady;
+    await act(async () => { publish(progress); });
     expect(await screen.findByRole('button', { name: /^partial.txt,/ })).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('1 entries discovered');
     await userEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
