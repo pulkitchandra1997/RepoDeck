@@ -10,7 +10,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "check:release": "node scripts/check-release.cjs",
-    "test:release": "node --test scripts/release.test.cjs",
+    "test:release": "node --test scripts/release.test.cjs scripts/windows/verify-nsis-notices.test.cjs",
     "test:notices": "node --test scripts/notices.test.cjs",
     "notices": "node scripts/generate-notices.cjs",
     "test": "vitest run",

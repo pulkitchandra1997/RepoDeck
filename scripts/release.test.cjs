@@ -21,6 +21,18 @@ test('notice packaging command selects strict collection and maps the fresh arti
     { '../.tools/notices/THIRD-PARTY-NOTICES.json': 'THIRD-PARTY-NOTICES.json' });
 });
 
+test('desktop packaging fetches the complete notice union and verifies bundled resources', async () => {
+  const workflow = await fs.readFile('.github/workflows/verify.yml', 'utf8');
+  for (const target of targets) {
+    assert.match(workflow, new RegExp(`cargo fetch --locked --target ${target}`));
+  }
+  assert.doesNotMatch(workflow, /npx tauri build --target/);
+  assert.match(workflow, /npm run package:notices -- --target/);
+  assert.match(workflow, /7z[^\r\n]* x /i);
+  assert.match(workflow, /verify-nsis-notices\.cjs/);
+  assert.match(workflow, /--notices-sha256/);
+});
+
 test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
   const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
   const version = require('semver').parse(config.version);

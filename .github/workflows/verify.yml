@@ -59,6 +59,11 @@ jobs:
           targets: ${{ matrix.target }}
           components: rustfmt, clippy
       - run: npm ci
+      - name: Fetch complete Cargo notice source union
+        run: |
+          cargo fetch --locked --target x86_64-pc-windows-msvc
+          cargo fetch --locked --target aarch64-apple-darwin
+          cargo fetch --locked --target x86_64-apple-darwin
       - run: npm run check:release
       - run: npm run test:release
       - name: macOS DMG validator regressions
@@ -150,23 +155,37 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build Windows installer
         if: runner.os == 'Windows'
-        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+        run: npm run package:notices -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
       - name: Build ad-hoc signed macOS DMG
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY: '-'
-        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+        run: npm run package:notices -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+      - name: Verify notice resource in Windows installer archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" -Filter '*-setup.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)" }
+          $extract = Join-Path $env:RUNNER_TEMP "repodeck-nsis-notice-$([guid]::NewGuid().ToString('N'))"
+          New-Item -ItemType Directory -Path $extract | Out-Null
+          & 7z x $installers[0].FullName "-o$extract" -y
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed with exit code $LASTEXITCODE" }
+          $noticeSha256 = (Get-FileHash -LiteralPath '.tools/notices/THIRD-PARTY-NOTICES.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+          node scripts/windows/verify-nsis-notices.cjs $extract $noticeSha256
       - name: Validate generated macOS DMG before staging or upload
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           SHORT_VERSION="$(node -p "require('./scripts/mac/validate-dmg.cjs').appleShortVersion(require('./package.json').version)")"
+          NOTICES_SHA256="$(shasum -a 256 .tools/notices/THIRD-PARTY-NOTICES.json | awk '{print $1}')"
           node scripts/mac/validate-dmg.cjs \
             --directory "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" \
             --version "$SHORT_VERSION" \
             --arch "${{ matrix.dmg_arch }}" \
             --signature ad-hoc \
+            --notices-sha256 "$NOTICES_SHA256" \
             --evidence ".tools/dmg-evidence/generated-${{ matrix.dmg_arch }}.json"
       - name: Upload native macOS DMG evidence
         if: runner.os == 'macOS'
