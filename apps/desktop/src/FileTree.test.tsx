@@ -42,6 +42,17 @@ it("finds nested files without requiring folder expansion", async () => {
   ).toBeTruthy();
   expect(screen.queryByRole("button", { name: /readme/ })).toBeNull();
 });
+it.each(['b.txt', 'B.TxT', '  B.TxT  ', '\tB.TxT\n'])('finds nested files with normalized query %j', query => {
+  render(<FileTree entries={entries} query={query} onOpen={() => {}} />);
+  expect(screen.getByRole('button', { name: /src\/nested\/b.txt/ }).textContent).toContain('src/nested/b.txt');
+  expect(screen.queryByRole('button', { name: /readme/ })).toBeNull();
+});
+it.each(['', '   ', '\t\n'])('keeps the unfiltered hierarchy for query %j', query => {
+  render(<FileTree entries={entries} query={query} onOpen={() => {}} />);
+  expect(screen.getByRole('button', { name: /readme.txt/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^src,/ }).getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: /src\/nested\/b.txt/ })).toBeNull();
+});
 it("keeps every entry reachable beyond the first page", async () => {
   const many = Array.from({ length: 201 }, (_, i) =>
     entry(`file-${String(i).padStart(3, "0")}.txt`, false),
