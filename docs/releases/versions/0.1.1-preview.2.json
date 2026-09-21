@@ -1,0 +1,19 @@
+{
+  "version": "0.1.1-preview.2",
+  "channel": "unsigned-preview",
+  "features": [
+    "Versioned development installers for Windows x64, macOS Apple Silicon and macOS Intel.",
+    "Discover Copilot instructions at workspace and repository roots while keeping unrelated hidden files excluded."
+  ],
+  "fixes": [
+    "Prevent stale preferences or workspace edits in one RepoDeck instance from overwriting another instance's saved settings.",
+    "Whitespace-only and padded searches use consistent matching and empty-result messages.",
+    "macOS packages use numeric Apple bundle versions and ad-hoc code signatures, with native disk-image and bundle validation before upload."
+  ],
+  "limitations": [
+    "Windows installers are unsigned. macOS bundles have ad-hoc signatures, not Developer ID signatures or notarization; operating-system security checks may block launch.",
+    "Native macOS first-launch and installer lifecycle testing remain pending. Image validation does not certify application behavior.",
+    "Git is required for repository inspection. No automatic updater is provided.",
+    "Third-party dependency distribution review remains incomplete; this preview is not stable release approval."
+  ]
+}
