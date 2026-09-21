@@ -16,6 +16,7 @@
     "test": "vitest run",
     "desktop": "tauri dev",
     "package": "tauri build",
+    "package:notices": "tauri build --config src-tauri/tauri.notices.conf.json",
     "test:ui": "node scripts/verify-ui.cjs",
     "test:contrast": "node scripts/verify-contrast.cjs",
     "test:git-setup": "node scripts/verify-git-setup.cjs",
