@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const semver = require('semver');
 
 const allowedArchitectures = new Set(['arm64', 'x86_64']);
 const allowedSignaturePolicies = new Set(['ad-hoc', 'required', 'observe']);
@@ -104,6 +105,27 @@ function parseJsonOutput(output, label) {
   }
 }
 
+function extractPlistXml(output, label) {
+  assert.equal(typeof output, 'string', `${label} must be text`);
+  const declaration = '<?xml';
+  const closingTag = '</plist>';
+  const start = output.indexOf(declaration);
+  assert.notEqual(start, -1, `${label} has no XML property list`);
+  assert.equal(output.indexOf(declaration, start + declaration.length), -1, `${label} has multiple XML property lists`);
+  const closingStart = output.indexOf(closingTag, start);
+  assert.notEqual(closingStart, -1, `${label} has no complete XML property list`);
+  const end = closingStart + closingTag.length;
+  assert.equal(output.indexOf(closingTag, end), -1, `${label} has multiple XML property lists`);
+  assert.equal(output.slice(end).trim(), '', `${label} has unexpected data after its XML property list`);
+  return output.slice(start, end);
+}
+
+function appleShortVersion(version) {
+  assert.equal(semver.valid(version), version, 'Package version must be strict SemVer');
+  const parsed = semver.parse(version);
+  return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+}
+
 async function exactMountedDevice(attachInfo, requestedMountPoint) {
   const entities = attachInfo['system-entities'];
   assert.ok(Array.isArray(entities), 'Attach metadata has no system entities');
@@ -185,7 +207,8 @@ async function validateDmgDirectory(options, dependencies = {}) {
       input: 'Y\n',
     });
     if (attach.status !== 0) throw new Error(`hdiutil attach failed with status ${attach.status}`);
-    const attachJson = run('plutil', ['-convert', 'json', '-o', '-', '-'], { input: attach.stdout }).stdout;
+    const attachPlist = extractPlistXml(attach.stdout, 'hdiutil attach metadata');
+    const attachJson = run('plutil', ['-convert', 'json', '-o', '-', '-'], { input: attachPlist }).stdout;
     mountedDevice = await exactMountedDevice(parseJsonOutput(attachJson, 'hdiutil attach metadata'), mountPoint);
 
     const app = path.join(mountPoint, 'RepoDeck.app');
@@ -264,6 +287,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  appleShortVersion,
+  extractPlistXml,
   parseCliArguments,
   validateDmgDirectory,
 };

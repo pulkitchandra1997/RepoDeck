@@ -148,10 +148,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(node -p "require('./package.json').version")"
+          SHORT_VERSION="$(node -p "require('./scripts/mac/validate-dmg.cjs').appleShortVersion(require('./package.json').version)")"
           node scripts/mac/validate-dmg.cjs \
             --directory "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" \
-            --version "$VERSION" \
+            --version "$SHORT_VERSION" \
             --arch "${{ matrix.dmg_arch }}" \
             --signature ad-hoc
       - name: Stage versioned installers

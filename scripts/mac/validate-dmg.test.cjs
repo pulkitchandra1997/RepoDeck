@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  appleShortVersion,
+  extractPlistXml,
   parseCliArguments,
   validateDmgDirectory,
 } = require('./validate-dmg.cjs');
@@ -30,6 +32,7 @@ function nativeFixture({
   architecture = 'arm64',
   attachStatus = 0,
   attachMetadataStatus = 0,
+  bundleVersion = '0.1.0',
   signatureStatus = 0,
   detachStatus = 0,
 } = {}) {
@@ -54,12 +57,18 @@ function nativeFixture({
       fs.writeFileSync(executable, 'not executed');
       fs.chmodSync(executable, 0o755);
       fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), 'fixture plist');
-      return { status: attachStatus, stdout: `fixture attach plist for ${mountPoint}`, stderr: '' };
+      return {
+        status: attachStatus,
+        stdout: `MIT License\nfixture agreement\n<?xml version="1.0"?><plist version="1.0"><dict/></plist>\n`,
+        stderr: '',
+      };
     }
     if (command === 'plutil' && args.at(-1) === '-') {
       if (attachMetadataStatus !== 0) {
         return { status: attachMetadataStatus, stdout: '', stderr: 'invalid attach metadata\n' };
       }
+      assert.match(options.input, /^<\?xml version="1\.0"\?>/);
+      assert.ok(!options.input.includes('MIT License'));
       const attach = calls.find(call => call.command === 'hdiutil' && call.args[0] === 'attach');
       const mountPoint = attach.args[attach.args.indexOf('-mountpoint') + 1];
       return { status: 0, stdout: JSON.stringify({
@@ -73,7 +82,7 @@ function nativeFixture({
       return { status: 0, stdout: JSON.stringify({
         CFBundleExecutable: 'repodeck-desktop',
         CFBundleIdentifier: 'org.repodeck.desktop',
-        CFBundleShortVersionString: '0.1.0',
+        CFBundleShortVersionString: bundleVersion,
       }), stderr: '' };
     }
     if (command === 'lipo') return { status: 0, stdout: `${architecture}\n`, stderr: '' };
@@ -210,6 +219,30 @@ test('invalid attach metadata falls back to the exact requested mountpoint', asy
     const requestedMountPoint = attach.args[attach.args.indexOf('-mountpoint') + 1];
     const detaches = fixture.calls.filter(call => call.command === 'hdiutil' && call.args[0] === 'detach');
     assert.deepEqual(detaches.map(call => call.args), [['detach', requestedMountPoint]]);
+  });
+});
+
+test('extracts one plist after displayed license text and rejects trailing data', () => {
+  const xml = '<?xml version="1.0"?><plist version="1.0"><dict/></plist>';
+  assert.equal(extractPlistXml(`MIT License\n${xml}\n`, 'attach metadata'), xml);
+  assert.throws(() => extractPlistXml(`MIT License\n${xml}\nunexpected`, 'attach metadata'));
+  assert.throws(() => extractPlistXml('MIT License only', 'attach metadata'));
+});
+
+test('derives only the expected Apple short version and still checks actual bundle metadata', async () => {
+  assert.equal(appleShortVersion('0.1.1-preview.1'), '0.1.1');
+  assert.throws(() => appleShortVersion('not-a-version'));
+
+  await withDmgFixture(async ({ bundleDirectory }) => {
+    const fixture = nativeFixture({ bundleVersion: '0.1.1-preview.1' });
+    await assert.rejects(validateDmgDirectory({
+      bundleDirectory,
+      expectedVersion: appleShortVersion('0.1.1-preview.1'),
+      expectedArch: 'arm64',
+      signaturePolicy: 'required',
+    }, { execute: fixture.execute, platform: 'darwin', writeOutput: () => {} }), /Unexpected bundle version/);
+    const detaches = fixture.calls.filter(call => call.command === 'hdiutil' && call.args[0] === 'detach');
+    assert.deepEqual(detaches.map(call => call.args), [['detach', '/dev/disk9s1']]);
   });
 });
 
