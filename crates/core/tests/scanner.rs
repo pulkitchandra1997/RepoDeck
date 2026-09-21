@@ -69,6 +69,30 @@ fn copilot_defaults_reach_workspace_and_nested_instructions_without_other_github
 }
 
 #[test]
+fn copilot_default_exception_stays_at_workspace_and_repository_roots() {
+    let dir = tempfile::tempdir().unwrap();
+    let ordinary = dir.path().join("ordinary/.github");
+    fs::create_dir_all(&ordinary).unwrap();
+    fs::write(
+        ordinary.join("copilot-instructions.md"),
+        "Not repository guidance\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("ordinary/visible.txt"), "Visible\n").unwrap();
+
+    let result = scan(dir.path(), &ScanOptions::default(), |_| {}).unwrap();
+
+    assert!(result
+        .entries
+        .iter()
+        .any(|entry| entry.path == "ordinary/visible.txt"));
+    assert!(!result
+        .entries
+        .iter()
+        .any(|entry| entry.path.starts_with("ordinary/.github")));
+}
+
+#[test]
 fn copilot_inventory_flows_through_workspace_events_and_both_report_formats() {
     use repodeck_core::{report, scanner::Scan, workspace};
     use std::sync::atomic::AtomicBool;
