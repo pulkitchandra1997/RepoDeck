@@ -6,37 +6,52 @@ RepoDeck is a local-first desktop app for developers working across multiple
 projects and AI coding agents. Add a folder to discover its repositories, or add
 a single checkout. Your projects stay on your machine.
 
-[Downloads](https://github.com/pulkitchandra1997/RepoDeck/releases) |
+[Downloads](#downloads-and-version) |
 [Getting Started](#getting-started) |
 [Contributing](CONTRIBUTING.md) |
 [Development Guide](DEVELOPMENT.md)
+
+## Downloads and Version
+
+**[v0.1.0 unsigned development preview](https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v0.1.0) is available.**
+This is an experimental prerelease, not a stable release or installation certification.
+
+| Your computer | Download installer |
+| --- | --- |
+| Windows x64 (Intel / AMD) | [Windows setup (.exe)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/RepoDeck_0.1.0_windows_x64-setup.exe) |
+| macOS Apple Silicon (M-series) | [Apple Silicon (.dmg)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/RepoDeck_0.1.0_macos_arm64.dmg) |
+| macOS Intel | [Intel Mac (.dmg)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/RepoDeck_0.1.0_macos_x64.dmg) |
+
+**Installers are unsigned; macOS builds are not notarized.** Windows may show a
+security warning and macOS may block launch. Do not disable operating-system
+security controls. On a Mac, use Apple menu > About This Mac to check the processor.
+
+**macOS installation report under investigation:** a user reported a damaged or
+corrupt download. [Issue #46](https://github.com/pulkitchandra1997/RepoDeck/issues/46)
+tracks native image validation. Matching checksums do not prove that an image
+mounts or that macOS permits the application to launch.
+
+Choose the installer for your platform. The release's `.sha256` checksums and
+`.json` build records are optional verification files. GitHub's source-code archives
+are for developers, not application installation. Git is required for repository
+inspection; there is no automatic updater.
+
+The source version is also `0.1.0`, but a source checkout can contain changes absent
+from that published preview. The release records source
+[`30056dd`](https://github.com/pulkitchandra1997/RepoDeck/commit/30056ddbaae3e59ad893306b3e7800991e95050f)
+and installers from successful main [CI run 34944670054](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/34944670054).
+All three build targets passed. These are distribution targets, not a verified
+OS-version support matrix: clean-machine installation, upgrade/uninstall and native
+Mac application workflows remain unverified for this preview. The later tag
+[run 34998022414](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/34998022414)
+failed release readiness; it is not successful build or publication evidence.
+See the [current verification summary](docs/planning/v1-verification.md#current-summary-2026-09-15)
+for evidence and outstanding gates, including incomplete third-party notices.
 
 ![RepoDeck file browser showing Git status colors and a numbered conflict preview](docs/images/files-and-conflicts.png)
 
 *Actual RepoDeck UI with synthetic demo data. Screenshot uses browser fixture IPC;
 it is not evidence of native installer testing.*
-
-## Downloads and Version
-
-**Current source version: 0.1.0. No public installer release yet.**
-
-Installers will be published in [GitHub Releases](https://github.com/pulkitchandra1997/RepoDeck/releases),
-with a version, source commit, release notes and SHA-256 checksums. CI build
-artifacts are development evidence, not a stable release.
-
-For isolated testing, [existing development installer builds](docs/releases/development-builds.md)
-are available with checksums and explicit limitations. These temporary CI downloads
-are not release-ready installers.
-
-| Platform | Installer | Status |
-| --- | --- | --- |
-| Windows x64 | `.exe` setup | Release verification pending |
-| macOS Apple Silicon (M-series) | ARM64 `.dmg` | Release verification pending |
-| macOS Intel | x64 `.dmg` | Release verification pending |
-
-There is no automatic updater yet. Unsigned development builds may trigger OS
-warnings; do not disable operating-system security controls. Supported OS versions
-and installation behavior must be verified before a public release is advertised.
 
 ## What You Can Do
 
@@ -55,7 +70,7 @@ command. It does not execute discovered agent instructions or resolve conflicts 
 
 ## Getting Started
 
-1. Install a published build when available, or follow the [development guide](DEVELOPMENT.md).
+1. Choose your platform's [preview download](#downloads-and-version) and review its warnings, or build from source with the [development guide](DEVELOPMENT.md).
 2. Use the folder button beside **Workspaces** to select a project folder or Git checkout.
 3. Switch between **Repositories**, **Files** and **Agents** to inspect the workspace.
 
