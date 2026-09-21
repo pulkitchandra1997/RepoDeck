@@ -1,0 +1,22 @@
+{
+  "version": "0.1.1-preview.3",
+  "channel": "unsigned-preview",
+  "features": [
+    "Bundle deterministic third-party dependency license and notice records in Windows x64, macOS Apple Silicon and macOS Intel packages.",
+    "Includes improvements since the public v0.1.0 release: discover Copilot instructions at workspace and repository roots while keeping unrelated hidden files excluded."
+  ],
+  "fixes": [
+    "Fetch the complete locked Cargo source union before strict offline notice generation on every packaging runner.",
+    "Reject release packages whose embedded notice resource is missing, altered, incomplete or still pending review.",
+    "Restore the native application icon in packaged bundles and verify its exact macOS resource bytes and bundle metadata.",
+    "Includes fixes since the public v0.1.0 release that prevent stale preferences or workspace edits in one RepoDeck instance from overwriting another instance's saved settings.",
+    "Includes fixes since the public v0.1.0 release so whitespace-only and padded searches use consistent matching and empty-result messages.",
+    "Includes the macOS repair since the public v0.1.0 release: numeric Apple bundle versions, ad-hoc code signatures, and native disk-image and app-bundle validation before upload."
+  ],
+  "limitations": [
+    "Windows installers are unsigned. macOS bundles have ad-hoc signatures, not Developer ID signatures or notarization; operating-system security checks may block launch.",
+    "Native macOS first-launch and installer lifecycle testing remain pending. Image validation does not certify application behavior.",
+    "Git is required for repository inspection. No automatic updater is provided.",
+    "The AI-assisted dependency notice review and package-content assertions are bounded engineering evidence, not legal clearance."
+  ]
+}

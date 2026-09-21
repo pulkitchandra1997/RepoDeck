@@ -5,9 +5,21 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      preview_0_1_1_preview_2_diagnostic:
+        description: Inspect the fixed preview.2 release-candidate DMGs without executing them
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
+  preview-dmg-candidate-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview_0_1_1_preview_2_diagnostic
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/preview-dmg-candidate-diagnostic.yml
   desktop:
     timeout-minutes: 45
     permissions:
@@ -47,6 +59,12 @@ jobs:
           targets: ${{ matrix.target }}
           components: rustfmt, clippy
       - run: npm ci
+      - name: Fetch complete Cargo notice source union
+        run: |
+          cargo fetch --locked --target x86_64-pc-windows-msvc
+          cargo fetch --locked --target aarch64-apple-darwin
+          cargo fetch --locked --target x86_64-apple-darwin
+          cargo fetch --locked
       - run: npm run check:release
       - run: npm run test:release
       - name: macOS DMG validator regressions
@@ -59,7 +77,7 @@ jobs:
           PUBLISHED_DMG_SHA256: ${{ matrix.published_dmg_sha256 }}
         run: |
           set -euo pipefail
-          mkdir -p .tools/published-v0.1.0
+          mkdir -p .tools/published-v0.1.0 .tools/dmg-evidence
           curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 \
             --output ".tools/published-v0.1.0/$PUBLISHED_DMG" \
             "https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/$PUBLISHED_DMG"
@@ -75,6 +93,7 @@ jobs:
           --arch ${{ matrix.dmg_arch }}
           --sha256 ${{ matrix.published_dmg_sha256 }}
           --signature observe
+          --evidence .tools/dmg-evidence/published-v0.1.0-${{ matrix.dmg_arch }}.json
       - name: Record published v0.1.0 native diagnosis
         if: runner.os == 'macOS' && always()
         shell: bash
@@ -137,23 +156,47 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build Windows installer
         if: runner.os == 'Windows'
-        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+        run: npm run package:notices -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
       - name: Build ad-hoc signed macOS DMG
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY: '-'
-        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+        run: npm run package:notices -- --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
+      - name: Verify notice resource in Windows installer archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" -Filter '*-setup.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)" }
+          $extract = Join-Path $env:RUNNER_TEMP "repodeck-nsis-notice-$([guid]::NewGuid().ToString('N'))"
+          New-Item -ItemType Directory -Path $extract | Out-Null
+          & 7z x $installers[0].FullName "-o$extract" -y
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed with exit code $LASTEXITCODE" }
+          $noticeSha256 = (Get-FileHash -LiteralPath '.tools/notices/THIRD-PARTY-NOTICES.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+          node scripts/windows/verify-nsis-notices.cjs $extract $noticeSha256
       - name: Validate generated macOS DMG before staging or upload
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           SHORT_VERSION="$(node -p "require('./scripts/mac/validate-dmg.cjs').appleShortVersion(require('./package.json').version)")"
+          ICON_SHA256="$(shasum -a 256 src-tauri/icons/icon.icns | awk '{print $1}')"
+          NOTICES_SHA256="$(shasum -a 256 .tools/notices/THIRD-PARTY-NOTICES.json | awk '{print $1}')"
           node scripts/mac/validate-dmg.cjs \
             --directory "target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}" \
             --version "$SHORT_VERSION" \
             --arch "${{ matrix.dmg_arch }}" \
-            --signature ad-hoc
+            --signature ad-hoc \
+            --icon-sha256 "$ICON_SHA256" \
+            --notices-sha256 "$NOTICES_SHA256" \
+            --evidence ".tools/dmg-evidence/generated-${{ matrix.dmg_arch }}.json"
+      - name: Upload native macOS DMG evidence
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-dmg-evidence-${{ matrix.target }}
+          path: .tools/dmg-evidence/*.json
+          if-no-files-found: error
       - name: Stage versioned installers
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/stage-release.cjs target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }} ${{ matrix.target }}
