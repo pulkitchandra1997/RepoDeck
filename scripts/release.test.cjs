@@ -8,6 +8,19 @@ const { createHash } = require('node:crypto');
 const { stageRelease } = require('./stage-release.cjs');
 const { spawnSync } = require('node:child_process');
 
+test('notice packaging command selects strict collection and maps the fresh artifact', async () => {
+  const manifest = JSON.parse(await fs.readFile('package.json', 'utf8'));
+  const base = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
+  const notices = JSON.parse(await fs.readFile('src-tauri/tauri.notices.conf.json', 'utf8'));
+  assert.equal(manifest.scripts['package:notices'],
+    'tauri build --config src-tauri/tauri.notices.conf.json');
+  assert.equal(base.build.beforeBuildCommand, 'npm run build');
+  assert.equal(notices.build.beforeBuildCommand,
+    'node scripts/generate-notices.cjs --bundle && npm run build');
+  assert.deepEqual(notices.bundle.resources,
+    { '../.tools/notices/THIRD-PARTY-NOTICES.json': 'THIRD-PARTY-NOTICES.json' });
+});
+
 test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
   const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
   const version = require('semver').parse(config.version);
