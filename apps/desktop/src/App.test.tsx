@@ -171,8 +171,13 @@ describe("Workspace experience", () => {
   it('retains alias drafts while manual scan progress unmounts the inspector', async () => {
     const api = backend();
     api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
+    let finishInitialScan!: (value: Snapshot) => void;
+    api.scan = () => new Promise(resolve => { finishInitialScan = resolve; });
     render(<App backend={api} />);
-    await userEvent.click(await screen.findByRole('button', { name: /^api/ }));
+    expect(await screen.findByRole('button', { name: 'Stop scan' })).toBeTruthy();
+    await act(async () => { finishInitialScan(snapshot); });
+    expect(screen.queryByRole('button', { name: 'Stop scan' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /^api/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Edit custom name' }));
     await userEvent.type(screen.getByLabelText('Custom name'), 'Payments');
     let progress!: (value: ScanProgress) => void;
