@@ -1,0 +1,17 @@
+{
+  "version": "0.1.1-preview.3",
+  "channel": "unsigned-preview",
+  "features": [
+    "Bundle deterministic third-party dependency license and notice records in Windows x64, macOS Apple Silicon and macOS Intel packages."
+  ],
+  "fixes": [
+    "Fetch the complete locked Cargo source union before strict offline notice generation on every packaging runner.",
+    "Reject release packages whose embedded notice resource is missing, altered, incomplete or still pending review."
+  ],
+  "limitations": [
+    "Windows installers are unsigned. macOS bundles have ad-hoc signatures, not Developer ID signatures or notarization; operating-system security checks may block launch.",
+    "Native macOS first-launch and installer lifecycle testing remain pending. Image validation does not certify application behavior.",
+    "Git is required for repository inspection. No automatic updater is provided.",
+    "The AI-assisted dependency notice review and package-content assertions are bounded engineering evidence, not legal clearance."
+  ]
+}

@@ -2655,7 +2655,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "repodeck-core"
-version = "0.1.1-preview.2"
+version = "0.1.1-preview.3"
 dependencies = [
  "dunce",
  "notify-debouncer-mini",
@@ -2668,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "repodeck-desktop"
-version = "0.1.1-preview.2"
+version = "0.1.1-preview.3"
 dependencies = [
  "open",
  "repodeck-core",
