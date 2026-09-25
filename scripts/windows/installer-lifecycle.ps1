@@ -35,14 +35,12 @@ function Stop-OwnedApplication {
 
 # Loading this file for function tests cannot reach any installer operation.
 if ($ValidateOnly) { return }
-Assert-HostedIsolation @{
-    Context = @{
+Assert-HostedIsolation -Context @{
         Actions = $env:GITHUB_ACTIONS; Environment = $env:RUNNER_ENVIRONMENT
         OS = $env:RUNNER_OS; Repository = $env:GITHUB_REPOSITORY
         Event = $env:GITHUB_EVENT_NAME; User = $env:USERNAME; Image = $env:ImageOS
         Model = (Get-CimInstance Win32_ComputerSystem).Model
         Manufacturer = (Get-CimInstance Win32_ComputerSystem).Manufacturer
-    }
 }
 if ($env:REPODECK_DATA_DIR) { throw 'An inherited profile override is not allowed.' }
 $testProfile = Join-Path $env:APPDATA 'org.repodeck.desktop'

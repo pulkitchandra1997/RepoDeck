@@ -16,6 +16,46 @@ foreach ($key in @($valid.Keys)) {
 }
 Write-Output '10 isolation guard cases passed; no installers executed.'
 
+# Execute only the parsed top-level guard command, never the installer script.
+$tokens = $null
+$parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    "$PSScriptRoot/installer-lifecycle.ps1", [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Harness parse failed.' }
+$calls = @($ast.EndBlock.Statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.PipelineAst] -and
+    $_.PipelineElements[0].GetCommandName() -eq 'Assert-HostedIsolation'
+})
+if ($calls.Count -ne 1) { throw 'Expected exactly one production guard invocation.' }
+& {
+    function Get-CimInstance {
+        param($ClassName)
+        if ($ClassName -ne 'Win32_ComputerSystem') { throw 'Unexpected hardware query.' }
+        return @{ Model = 'Virtual Machine'; Manufacturer = 'Microsoft Corporation' }
+    }
+    $fixture = @{
+        GITHUB_ACTIONS = 'true'; RUNNER_ENVIRONMENT = 'github-hosted'; RUNNER_OS = 'Windows'
+        GITHUB_REPOSITORY = 'pulkitchandra1997/RepoDeck'; GITHUB_EVENT_NAME = 'workflow_dispatch'
+        USERNAME = 'runneradmin'; ImageOS = 'win25'
+    }
+    $saved = @{}
+    try {
+        foreach ($key in $fixture.Keys) {
+            $saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+            [Environment]::SetEnvironmentVariable($key, $fixture[$key], 'Process')
+        }
+        $call = [scriptblock]::Create($calls[0].Extent.Text)
+        & $call
+        [Environment]::SetEnvironmentVariable('RUNNER_ENVIRONMENT', 'self-hosted', 'Process')
+        $rejected = $false
+        try { & $call } catch { $rejected = $true }
+        if (-not $rejected) { throw 'Production call accepted a self-hosted runner.' }
+    } finally {
+        foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process') }
+    }
+}
+Write-Output '2 production call-site binding cases passed; only the guard command executed.'
+
 foreach ($scenario in @('already-exited', 'closed', 'killed', 'kill-timeout')) {
     $app = [pscustomobject]@{ HasExited = ($scenario -eq 'already-exited'); Scenario = $scenario; Waits = @(); Kills = 0 }
     $app | Add-Member ScriptMethod CloseMainWindow { return $true }
