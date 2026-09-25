@@ -13,40 +13,35 @@ a single checkout. Your projects stay on your machine.
 
 ## Downloads and Version
 
-**[v0.1.0 unsigned development preview](https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v0.1.0) is available.**
-This is an experimental prerelease, not a stable release or installation certification.
+**[v0.1.1-preview.3 development preview](https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v0.1.1-preview.3) is available.**
+This is the current experimental prerelease, not a stable release or installation certification.
 
 | Your computer | Download installer |
 | --- | --- |
-| Windows x64 (Intel / AMD) | [Windows setup (.exe)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/RepoDeck_0.1.0_windows_x64-setup.exe) |
-| macOS Apple Silicon (M-series) | [Apple Silicon (.dmg)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/RepoDeck_0.1.0_macos_arm64.dmg) |
-| macOS Intel | [Intel Mac (.dmg)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.0/RepoDeck_0.1.0_macos_x64.dmg) |
+| Windows x64 (Intel / AMD) | [Windows setup (.exe)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.1-preview.3/RepoDeck_0.1.1-preview.3_windows_x64-setup.exe) |
+| macOS Apple Silicon (M-series) | [Apple Silicon (.dmg)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.1-preview.3/RepoDeck_0.1.1-preview.3_macos_arm64.dmg) |
+| macOS Intel | [Intel Mac (.dmg)](https://github.com/pulkitchandra1997/RepoDeck/releases/download/v0.1.1-preview.3/RepoDeck_0.1.1-preview.3_macos_x64.dmg) |
 
-**Installers are unsigned; macOS builds are not notarized.** Windows may show a
-security warning and macOS may block launch. Do not disable operating-system
-security controls. On a Mac, use Apple menu > About This Mac to check the processor.
-
-**macOS installation report under investigation:** a user reported a damaged or
-corrupt download. [Issue #46](https://github.com/pulkitchandra1997/RepoDeck/issues/46)
-tracks native image validation. Matching checksums do not prove that an image
-mounts or that macOS permits the application to launch.
+**The Windows installer is unsigned. The macOS apps are ad-hoc signed, not
+Developer ID signed or notarized.** Windows may show a security warning and macOS
+may block launch. Do not disable operating-system security controls. On a Mac,
+use Apple menu > About This Mac to check the processor.
 
 Choose the installer for your platform. The release's `.sha256` checksums and
 `.json` build records are optional verification files. GitHub's source-code archives
 are for developers, not application installation. Git is required for repository
 inspection; there is no automatic updater.
 
-The source version is also `0.1.0`, but a source checkout can contain changes absent
-from that published preview. The release records source
-[`30056dd`](https://github.com/pulkitchandra1997/RepoDeck/commit/30056ddbaae3e59ad893306b3e7800991e95050f)
-and installers from successful main [CI run 34944670054](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/34944670054).
-All three build targets passed. These are distribution targets, not a verified
-OS-version support matrix: clean-machine installation, upgrade/uninstall and native
-Mac application workflows remain unverified for this preview. The later tag
-[run 34998022414](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/34998022414)
-failed release readiness; it is not successful build or publication evidence.
-See the [current verification summary](docs/planning/v1-verification.md#current-summary-2026-09-15)
-for evidence and outstanding gates, including incomplete third-party notices.
+The release records source
+[`bbf7490`](https://github.com/pulkitchandra1997/RepoDeck/commit/bbf7490b518139d138f5656291724f51b9a97550)
+and successful tag [CI run 35604048658](https://github.com/pulkitchandra1997/RepoDeck/actions/runs/35604048658).
+All three build targets passed. Native macOS CI verified and mounted both DMGs,
+checked their app architecture and ad-hoc signature, and matched the bundled notice
+and icon hashes before upload. Windows CI extracted the installer archive and
+matched its bundled notice hash. These package checks do not prove full first launch,
+clean-machine installation, upgrade or uninstall behavior; native macOS first-launch
+testing remains pending. See the [macOS preview test guide](docs/releases/macos-preview-testing.md)
+and [release policy](docs/releases/release-guide.md) for the remaining boundaries.
 
 ![RepoDeck file browser showing Git status colors and a numbered conflict preview](docs/images/files-and-conflicts.png)
 

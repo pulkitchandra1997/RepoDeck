@@ -45,6 +45,24 @@ test('preview 3 notes disclose the complete repair scope since public v0.1.0', a
   assert.ok(notes.fixes.some(fix => /since.*v0\.1\.0.*numeric Apple bundle versions.*ad-hoc.*native disk-image/i.test(fix)));
 });
 
+test('public download docs point to published preview 3 and distinguish platform signing', async () => {
+  const publishedVersion = '0.1.1-preview.3';
+  const readme = await fs.readFile('README.md', 'utf8');
+  const macosTesting = await fs.readFile('docs/releases/macos-preview-testing.md', 'utf8');
+  const releaseUrl = `https://github.com/pulkitchandra1997/RepoDeck/releases/tag/v${publishedVersion}`;
+  assert.ok(readme.includes(releaseUrl));
+  for (const target of ['x86_64-pc-windows-msvc', 'aarch64-apple-darwin', 'x86_64-apple-darwin']) {
+    assert.ok(readme.includes(`${releaseUrl.replace('/tag/', '/download/')}/${assetName(publishedVersion, target)}`));
+  }
+  assert.match(readme, /Windows installer is unsigned/i);
+  assert.match(readme, /macOS apps? (?:is|are) ad-hoc signed/i);
+  assert.ok(macosTesting.includes(releaseUrl));
+  for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
+    assert.ok(macosTesting.includes(`${releaseUrl.replace('/tag/', '/download/')}/${assetName(publishedVersion, target)}`));
+  }
+  assert.match(macosTesting, /first-launch,[\s\S]{0,120}remain pending/i);
+});
+
 test('macOS bundle metadata uses the numeric release version without a preview suffix', async () => {
   const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
   const version = require('semver').parse(config.version);
@@ -201,7 +219,9 @@ test('release assembly verifies all targets and generates three prominent exact 
     const prominent = notes.split('<details>')[0];
     for (const target of targets) assert.ok(prominent.includes(`https://github.com/pulkitchandra1997/RepoDeck/releases/download/v${previewVersion}/${assetName(previewVersion, target)}`));
     for (const heading of ['## Features', '## Fixes', '## Known Limitations']) assert.ok(prominent.includes(heading));
-    assert.match(notes, /unsigned/);
+    assert.match(notes, /Windows installer is unsigned/);
+    assert.match(notes, /macOS apps are ad-hoc signed, not Developer ID signed or notarized/);
+    assert.doesNotMatch(notes, /They are not signed/);
     assert.match(notes, /Automatic updates are not implemented/);
     assert.match(notes, /<summary>Source, checksums and verification<\/summary>/);
     assert.ok(notes.includes(previewCommit));
