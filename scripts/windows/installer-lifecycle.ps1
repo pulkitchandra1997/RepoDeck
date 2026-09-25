@@ -13,7 +13,27 @@ function Assert-HostedIsolation {
     }
 }
 
-# Loading this file for guard tests cannot reach any installer operation.
+function Stop-OwnedApplication {
+    param($App, $Cleanup)
+    $Cleanup.status = 'already-exited'
+    if ($App.HasExited) { return }
+    $Cleanup.status = 'requesting-close'
+    [void]$App.CloseMainWindow()
+    if ($App.WaitForExit(10000)) {
+        $Cleanup.status = 'closed'
+        return
+    }
+    $Cleanup.gracefulCloseTimedOut = $true
+    $Cleanup.status = 'killing'
+    $App.Kill()
+    if (-not $App.WaitForExit(10000)) {
+        $Cleanup.status = 'kill-timeout'
+        throw 'Owned application did not exit within 10 seconds after Kill; cleanup incomplete.'
+    }
+    $Cleanup.status = 'killed'
+}
+
+# Loading this file for function tests cannot reach any installer operation.
 if ($ValidateOnly) { return }
 Assert-HostedIsolation @{
     Context = @{
@@ -82,10 +102,10 @@ function Assert-Launch {
         $record.steps += @{ stage = $Stage; ownedPid = $app.Id; nativeWindow = $true }
         Save-Evidence
     } finally {
-        if (-not $app.HasExited) {
-            [void]$app.CloseMainWindow()
-            if (-not $app.WaitForExit(10000)) { $app.Kill(); $app.WaitForExit() }
-        }
+        $cleanup = @{ stage = "$Stage-cleanup"; ownedPid = $app.Id; status = 'pending'; gracefulCloseTimedOut = $false }
+        $record.steps += $cleanup
+        try { Stop-OwnedApplication $app $cleanup }
+        finally { Save-Evidence }
     }
 }
 try {

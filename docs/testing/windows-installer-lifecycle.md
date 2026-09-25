@@ -32,7 +32,14 @@ data removal, byte-preserved settings, reinstall, and owned relaunch. The uninst
 uses `_?=` to avoid a temporary-process handoff. The VM is discarded afterward;
 there is no broad process kill or host installation cleanup.
 
-`result.json` records completed stages even on failure. A native window does not
+`result.json` begins only after isolation/state/Git preflight, download and hash
+verification succeed. Failures before that point appear in workflow logs; no
+structured result is promised for them. Subsequent lifecycle failures retain
+completed stages and cleanup status. App shutdown waits up to 10 seconds after
+requesting close, then up to 10 seconds after killing only the owned process.
+A post-kill timeout records `kill-timeout` and fails the run with cleanup incomplete;
+a forced exit records `killed` and the graceful-close timeout explicitly.
+A native window does not
 prove rendered UI, repository interaction, settings consumption or onboarding.
 Retention proves seeded file bytes survive; it does not prove a GUI settings edit.
 Interactive setup, Start-menu launch, SmartScreen, missing Git, upgrade across
@@ -40,5 +47,6 @@ versions, Windows client OS coverage and macOS remain pending. A headless runner
 without a native window fails the launch assertion rather than claiming coverage.
 
 Locally safe verification: `pwsh -File scripts/windows/installer-lifecycle.test.ps1`.
-Only guard functions load in this mode. Installer lifecycle execution and its
+Only function definitions load in this mode; cleanup tests use inert process doubles.
+Installer lifecycle execution and its
 results remain untested until the reviewed workflow is deliberately dispatched.
