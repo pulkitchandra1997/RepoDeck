@@ -11,8 +11,8 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
-        Arc,
+        mpsc::{self, Receiver, SyncSender},
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -25,30 +25,52 @@ pub struct WatchNotice {
 
 pub struct WorkspaceWatch {
     cancelled: Arc<AtomicBool>,
-    control: Sender<Control>,
+    control: SyncSender<()>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl Drop for WorkspaceWatch {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
-        let _ = self.control.send(Control::Stop);
+        let _ = self.control.try_send(());
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
     }
 }
 
-enum Control {
-    Events(DebounceEventResult),
-    Stop,
-}
-
 type Registration = (PathBuf, notify::RecursiveMode);
 
+#[derive(Clone)]
 struct RegistrationSet {
     metadata: Vec<Registration>,
     pointers: Vec<PathBuf>,
+}
+
+#[derive(Default)]
+struct PendingEvents {
+    pointer_dirty: bool,
+    relevant: bool,
+    error: bool,
+}
+
+struct EventInbox {
+    registrations: RegistrationSet,
+    pending: PendingEvents,
+}
+
+impl EventInbox {
+    fn collect(&mut self, result: DebounceEventResult, root: &Path, excluded: &[String]) {
+        match result {
+            Ok(events) => {
+                self.pending.pointer_dirty |=
+                    touches_pointer(&events, &self.registrations.pointers);
+                self.pending.relevant |=
+                    relevant_event(&events, &self.registrations, root, excluded);
+            }
+            Err(_) => self.pending.error = true,
+        }
+    }
 }
 
 // Reading files during a scan must not generate another scan on access-reporting backends.
@@ -94,8 +116,13 @@ pub fn start(
     )
 }
 
-fn metadata_path(root: &Path, option: &str) -> Result<PathBuf, String> {
-    let output = repository::run_output(root, &["rev-parse", "--path-format=absolute", option])?;
+fn metadata_path(root: &Path, option: &str, cancelled: &AtomicBool) -> Result<PathBuf, String> {
+    let output = repository::run_output_controlled(
+        root,
+        &["rev-parse", "--path-format=absolute", option],
+        &[],
+        cancelled,
+    )?;
     if !output.status.success() {
         return Err("Cannot locate worktree metadata; use Refresh".into());
     }
@@ -117,11 +144,17 @@ fn registration_set(
 ) -> Result<RegistrationSet, String> {
     let mut metadata = Vec::new();
     let mut pointers = Vec::new();
-    for entry in scanner::scan_controlled(root, options, cancelled, |_| {})?
-        .entries
+    let scan = scanner::scan_controlled(root, options, cancelled, |_| {})?;
+    // An omitted checkout is not evidence its metadata watch should be removed.
+    // Linked entries are deliberately excluded, not an incomplete inventory.
+    if scan
+        .warnings
         .iter()
-        .filter(|entry| entry.repository)
+        .any(|warning| !warning.starts_with("Linked entry not followed:"))
     {
+        return Err("Workspace inventory is incomplete; use Refresh".into());
+    }
+    for entry in scan.entries.iter().filter(|entry| entry.repository) {
         if cancelled.load(Ordering::Acquire) {
             return Err("Watch cancelled".into());
         }
@@ -131,11 +164,11 @@ fn registration_set(
             continue;
         }
         pointers.push(pointer);
-        let git_dir = metadata_path(&checkout, "--absolute-git-dir")?;
+        let git_dir = metadata_path(&checkout, "--absolute-git-dir", cancelled)?;
         if cancelled.load(Ordering::Acquire) {
             return Err("Watch cancelled".into());
         }
-        let common_dir = metadata_path(&checkout, "--git-common-dir")?;
+        let common_dir = metadata_path(&checkout, "--git-common-dir", cancelled)?;
         metadata.push((git_dir, notify::RecursiveMode::NonRecursive));
         for child in ["refs", "reftable"] {
             let path = common_dir.join(child);
@@ -234,51 +267,44 @@ fn run_watch(
     mut watcher: Debouncer<ChangesOnly>,
     root: PathBuf,
     options: ScanOptions,
-    mut registrations: RegistrationSet,
+    inbox: Arc<Mutex<EventInbox>>,
     cancelled: Arc<AtomicBool>,
-    control: Receiver<Control>,
+    control: Receiver<()>,
     mut on_change: impl FnMut(WatchNotice),
 ) {
-    while let Ok(message) = control.recv() {
+    let mut registrations = inbox.lock().unwrap().registrations.clone();
+    while control.recv().is_ok() {
         if cancelled.load(Ordering::Acquire) {
             break;
         }
-        let result = match message {
-            Control::Events(result) => result,
-            Control::Stop => break,
-        };
-        match result {
-            Ok(events) => {
-                if touches_pointer(&events, &registrations.pointers) {
-                    let next = registration_set(&root, &options, &cancelled);
-                    if cancelled.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let mut next = match next {
-                        Ok(next) => next,
-                        Err(_) => {
-                            report_failure(&cancelled, &mut on_change);
-                            continue;
-                        }
-                    };
-                    next.pointers.extend(registrations.pointers.iter().cloned());
-                    next.pointers.sort();
-                    next.pointers.dedup();
-                    if reconcile_registrations(&mut watcher, &registrations, &next).is_err() {
-                        report_failure(&cancelled, &mut on_change);
-                        continue;
-                    }
-                    registrations = next;
-                }
-                if !cancelled.load(Ordering::Acquire)
-                    && relevant_event(&events, &registrations, &root, &options.excluded)
-                {
-                    on_change(WatchNotice { error: None });
-                }
+        let pending = std::mem::take(&mut inbox.lock().unwrap().pending);
+        if pending.error {
+            report_failure(&cancelled, &mut on_change);
+        }
+        if pending.pointer_dirty {
+            let next = registration_set(&root, &options, &cancelled);
+            if cancelled.load(Ordering::Acquire) {
+                break;
             }
-            Err(_) => {
+            let mut next = match next {
+                Ok(next) => next,
+                Err(_) => {
+                    report_failure(&cancelled, &mut on_change);
+                    continue;
+                }
+            };
+            next.pointers.extend(registrations.pointers.iter().cloned());
+            next.pointers.sort();
+            next.pointers.dedup();
+            if reconcile_registrations(&mut watcher, &registrations, &next).is_err() {
                 report_failure(&cancelled, &mut on_change);
+                continue;
             }
+            inbox.lock().unwrap().registrations = next.clone();
+            registrations = next;
+        }
+        if !cancelled.load(Ordering::Acquire) && pending.relevant && !pending.error {
+            on_change(WatchNotice { error: None });
         }
     }
 }
@@ -306,12 +332,24 @@ pub fn start_with_options(
         .with_timeout(Duration::from_millis(350))
         .with_batch_mode(true)
         .with_notify_config(notify::Config::default().with_follow_symlinks(false));
-    let (control_tx, control_rx) = mpsc::channel();
+    // At most one wakeup and three sticky flags, independent of event volume.
+    let (control_tx, control_rx) = mpsc::sync_channel(1);
     let event_tx = control_tx.clone();
+    let inbox = Arc::new(Mutex::new(EventInbox {
+        registrations: registrations.clone(),
+        pending: PendingEvents::default(),
+    }));
+    let event_inbox = inbox.clone();
+    let event_root = root.clone();
+    let event_excluded = options.excluded.clone();
     let mut watcher = notify_debouncer_mini::new_debouncer_opt::<_, ChangesOnly>(
         config,
         move |result: DebounceEventResult| {
-            let _ = event_tx.send(Control::Events(result));
+            event_inbox
+                .lock()
+                .unwrap()
+                .collect(result, &event_root, &event_excluded);
+            let _ = event_tx.try_send(());
         },
     )
     .map_err(|_| "Cannot start automatic updates; use Refresh")?;
@@ -333,7 +371,7 @@ pub fn start_with_options(
                 watcher,
                 root,
                 options,
-                registrations,
+                inbox,
                 worker_cancelled,
                 control_rx,
                 on_change,
@@ -345,4 +383,84 @@ pub fn start_with_options(
         control: control_tx,
         worker: Some(worker),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+
+    #[test]
+    fn coalescing_keeps_pointer_changes_and_errors_across_event_floods() {
+        let root = tempfile::tempdir().unwrap();
+        let pointer = root.path().join("checkout/.git");
+        let mut inbox = EventInbox {
+            registrations: RegistrationSet {
+                metadata: vec![],
+                pointers: vec![pointer.clone()],
+            },
+            pending: PendingEvents::default(),
+        };
+        inbox.collect(
+            Ok(vec![DebouncedEvent::new(pointer, DebouncedEventKind::Any)]),
+            root.path(),
+            &[],
+        );
+        inbox.collect(
+            Err(notify::Error::generic("fixture backend failure")),
+            root.path(),
+            &[],
+        );
+        for _ in 0..10_000 {
+            inbox.collect(
+                Ok(vec![DebouncedEvent::new(
+                    root.path().join("node_modules/output"),
+                    DebouncedEventKind::Any,
+                )]),
+                root.path(),
+                &["node_modules".into()],
+            );
+        }
+        let pending = std::mem::take(&mut inbox.pending);
+        assert!(pending.pointer_dirty);
+        assert!(pending.error);
+        assert!(pending.relevant);
+        assert!(!inbox.pending.pointer_dirty && !inbox.pending.error && !inbox.pending.relevant);
+    }
+
+    #[test]
+    fn coalesced_success_does_not_clear_a_backend_error() {
+        let root = tempfile::tempdir().unwrap();
+        let watcher = notify_debouncer_mini::new_debouncer_opt::<_, ChangesOnly>(
+            Config::default(),
+            |_: DebounceEventResult| {},
+        )
+        .unwrap();
+        let inbox = Arc::new(Mutex::new(EventInbox {
+            registrations: RegistrationSet {
+                metadata: vec![],
+                pointers: vec![],
+            },
+            pending: PendingEvents {
+                pointer_dirty: false,
+                relevant: true,
+                error: true,
+            },
+        }));
+        let (tx, rx) = mpsc::sync_channel(1);
+        tx.send(()).unwrap();
+        drop(tx);
+        let mut notices = Vec::new();
+        run_watch(
+            watcher,
+            root.path().to_path_buf(),
+            ScanOptions::default(),
+            inbox,
+            Arc::new(AtomicBool::new(false)),
+            rx,
+            |notice| notices.push(notice),
+        );
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].error.as_ref().unwrap().contains("Refresh"));
+    }
 }

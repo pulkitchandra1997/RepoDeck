@@ -30,7 +30,7 @@ pub(crate) fn run_output_input(path: &Path, args: &[&str], input: &[u8]) -> Resu
     run_output_controlled(path, args, input, &AtomicBool::new(false))
 }
 
-fn run_output_controlled(
+pub(crate) fn run_output_controlled(
     path: &Path,
     args: &[&str],
     input: &[u8],
