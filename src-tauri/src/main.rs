@@ -4,6 +4,9 @@
 mod terminal_windows;
 
 mod settings_ipc;
+// Startup ownership is tested independently until the controlled core API lands.
+#[cfg(test)]
+mod watch_lifecycle;
 
 use repodeck_core::workspace::{ScanProgress, Snapshot};
 use repodeck_core::{files, repository, scanner, settings::Settings};

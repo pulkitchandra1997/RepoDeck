@@ -69,7 +69,7 @@ export interface Backend {
   openEditor(id: string, path: string): Promise<void>;
   remoteTarget(remote: string): Promise<string>;
   openRemote(url: string): Promise<void>;
-  watch(id: string, onChange: (notice: { error: string | null }) => void): Promise<() => void>;
+  watch(id: string, onChange: (notice: { error: string | null }) => void, signal?: AbortSignal): Promise<() => void>;
   recoverSettings(): Promise<{ settings: Settings; backupPath: string }>;
   cancelScan(id: string): Promise<void>;
   gitFeatures(id: string, repository: string): Promise<{ hooks: string[]; lfsConfigured: boolean; lfsAttributes: string[]; warnings: string[] }>;

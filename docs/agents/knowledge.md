@@ -25,6 +25,7 @@ Paths abbreviated in a row are relative to that row's first directory.
 - Git and data security: [SECURITY.md](../../SECURITY.md) and
   [filter mitigation evidence](../testing/filter-security-mitigation-2026-09-14.md).
 - Confirmation behavior: [confirmation policy](../testing/confirmation-policy.md).
+- Pending watch startup integration: [ownership and dependency](../architecture/watch-startup.md).
 - Reproducible repository layouts: [manual workspace fixtures](../testing/manual-workspace.md).
 - Installation: [human installation checks](../testing/human-installation.md) and
   [release guide](../releases/release-guide.md).
