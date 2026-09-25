@@ -417,6 +417,7 @@ export default function App({ backend }: { backend: Backend }) {
             <div className="workspace-row" key={w.id}>
               <button
                 className={w.id === active ? "active" : ""}
+                aria-current={w.id === active ? "true" : undefined}
                 onClick={() => setActive(w.id)}
               >
                 <Folder size={16} />
@@ -610,6 +611,7 @@ export default function App({ backend }: { backend: Backend }) {
                     {repositories.map((r) => (
                         <button
                           className={`repo-row ${selected === r.relativePath ? "selected" : ""}`}
+                          aria-current={selected === r.relativePath ? "true" : undefined}
                           key={r.relativePath}
                           onClick={() => {
                             setSelected(r.relativePath);
