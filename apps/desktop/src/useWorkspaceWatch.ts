@@ -13,13 +13,14 @@ export default function useWorkspaceWatch(backend: Pick<Backend, 'watch'>, id: s
     let stop: (() => void) | undefined;
     pending.current = false;
     if (!id || !enabled) { setStatus('Automatic refresh paused'); return; }
+    const startup = new AbortController();
     setStatus('Starting automatic refresh');
     const changed = () => { pending.current = true; setChanges(value => value + 1); };
     backend.watch(id, notice => {
       if (!alive) return;
       if (notice.error) setStatus(notice.error);
       else changed();
-    }).then(release => {
+    }, startup.signal).then(release => {
       if (!alive) { release(); return; }
       stop = release;
       setStatus('Automatic refresh active');
@@ -28,7 +29,7 @@ export default function useWorkspaceWatch(backend: Pick<Backend, 'watch'>, id: s
     }).catch(error => {
       if (alive) setStatus(error instanceof Error ? error.message : String(error));
     });
-    return () => { alive = false; pending.current = false; stop?.(); };
+    return () => { alive = false; pending.current = false; startup.abort(); stop?.(); };
   }, [backend, id, enabled, revision]);
 
   useEffect(() => {
