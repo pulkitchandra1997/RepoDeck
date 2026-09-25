@@ -46,4 +46,66 @@ if (($fallbacks -join '|') -cne ($expectedFallbacks -join '|') -or
     $hook -notmatch 'IfSilent repodeck_git_abort 0' -or $hook -notmatch 'SetErrorLevel 2') {
     throw 'NSIS probe contract changed; reassess all masking paths and expected exit.'
 }
-Write-Output '5 transaction fault scenarios and production syntax/guard binding passed. No Git, installer or environment mutation.'
+# Exercise the Actions wrapper in a separate inert PowerShell process.
+$helper = "$PSScriptRoot/missing-git-transaction.ps1".Replace("'", "''")
+foreach ($case in @(
+    @{ Code = 'Confirm-WhereAbsence 1'; Expected = 0 },
+    @{ Code = 'Confirm-WhereAbsence 0'; Expected = 1 },
+    @{ Code = 'Confirm-WhereAbsence 2'; Expected = 1 },
+    @{ Code = 'Confirm-WhereAbsence 1; & $PSHOME/pwsh.exe -NoProfile -Command "exit 7"'; Expected = 7 },
+    @{ Code = 'Confirm-WhereAbsence 1; throw "later failure"'; Expected = 1 }
+)) {
+    $command = "`$ErrorActionPreference = 'Stop'; . '$helper'; `$global:LASTEXITCODE = 1; " + $case.Code +
+        '; if (Test-Path variable:\LASTEXITCODE) { exit $LASTEXITCODE }'
+    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in @('-NoProfile', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))) {
+        $start.ArgumentList.Add($argument)
+    }
+    $child = [Diagnostics.Process]::Start($start)
+    try {
+        if (-not $child.WaitForExit(15000)) {
+            $child.Kill()
+            $null = $child.WaitForExit(5000)
+            throw 'Wrapper regression timed out.'
+        }
+        if ($child.ExitCode -ne $case.Expected) { throw "Unexpected wrapper exit: $($child.ExitCode)" }
+    } finally { $child.Dispose() }
+}
+
+function Assert-Rejected {
+    param([scriptblock]$Action)
+    $rejected = $false
+    try { & $Action } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Unsafe fixture unexpectedly accepted.' }
+}
+$fixture = Join-Path ([IO.Path]::GetTempPath()) "repodeck-negative-unit-$([guid]::NewGuid().ToString('N'))"
+$link = Join-Path $fixture 'linked-install'
+try {
+    $null = New-Item -ItemType Directory -Path "$fixture/Windows/System32", "$fixture/Windows/SysWOW64", "$fixture/empty"
+    $dirs = Get-InstallerSearchDirectories "$fixture/output" "$fixture/Windows"
+    Assert-SearchDirectoriesAbsent $dirs
+    Set-Content "$fixture/Windows/SysWOW64/git.exe" 'inert fixture, never executed'
+    Assert-SearchDirectoriesAbsent @("$fixture/Windows/System32")
+    Assert-Rejected { Assert-SearchDirectoriesAbsent $dirs }
+    if ((Get-InstallDirectoryResidue "$fixture/absent" -AllowEmpty) -ne 'absent') { throw 'Absent state misreported.' }
+    if ((Get-InstallDirectoryResidue "$fixture/empty" -AllowEmpty) -ne 'empty-directory') { throw 'Empty residue misreported.' }
+    Assert-Rejected { Get-InstallDirectoryResidue "$fixture/empty" }
+    Assert-Rejected { Get-InstallDirectoryResidue "$fixture/Windows/SysWOW64/git.exe" -AllowEmpty }
+    Assert-Rejected { Get-InstallDirectoryResidue "$fixture/Windows" -AllowEmpty }
+    Set-Content "$fixture/empty/hidden" 'inert'
+    (Get-Item "$fixture/empty/hidden").Attributes = [IO.FileAttributes]::Hidden
+    Assert-Rejected { Get-InstallDirectoryResidue "$fixture/empty" -AllowEmpty }
+    $null = New-Item -ItemType Junction -Path $link -Target "$fixture/Windows"
+    Assert-Rejected { Get-InstallDirectoryResidue $link -AllowEmpty }
+} finally {
+    if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force }
+    $resolved = [IO.Path]::GetFullPath($fixture)
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    if (-not $resolved.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        (Split-Path $resolved -Leaf) -notlike 'repodeck-negative-unit-*') { throw 'Unsafe fixture cleanup path.' }
+    if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
+}
+Write-Output '5 transaction faults, 5 wrapper exits, search-view/residue regressions and production syntax/guard binding passed. No installer or host Git mutation.'

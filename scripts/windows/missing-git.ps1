@@ -28,10 +28,12 @@ $oldPath = $env:PATH
 $oldLocation = Get-Location
 $installer = Join-Path $output 'preview3-setup.exe'
 $install = Join-Path $env:LOCALAPPDATA 'RepoDeck'
-$statePaths = @($install, (Join-Path $env:LOCALAPPDATA 'Programs/RepoDeck'),
+$statePaths = @((Join-Path $env:LOCALAPPDATA 'Programs/RepoDeck'),
     (Join-Path $env:APPDATA 'org.repodeck.desktop'),
     (Join-Path $env:LOCALAPPDATA 'org.repodeck.desktop'))
 function Assert-NoProductState {
+    param([switch]$AllowEmptyInstallDirectory)
+    $record.installDirectoryResidue = Get-InstallDirectoryResidue -Path $install -AllowEmpty:$AllowEmptyInstallDirectory
     foreach ($item in $statePaths) {
         if (Test-Path -LiteralPath $item) { throw 'Unexpected RepoDeck payload or settings state.' }
     }
@@ -71,10 +73,9 @@ try {
     $labels = @{}
     for ($i = 0; $i -lt $candidates.Count; $i++) { $labels[$candidates[$i]] = "fallback-$i" }
     # SearchPath may consult application/current/system/Windows directories as well as PATH.
-    $searchDirs = @($output, "$env:WINDIR/System32", "$env:WINDIR/System", $env:WINDIR)
-    foreach ($directory in $searchDirs) {
-        if (Test-Path -LiteralPath (Join-Path $directory 'git.exe')) { throw 'Git in an unmaskable system/search directory.' }
-    }
+    # The pinned x86 NSIS executable sees System32 redirected to SysWOW64.
+    $searchDirs = Get-InstallerSearchDirectories $output $env:WINDIR
+    Assert-SearchDirectoriesAbsent $searchDirs
     foreach ($candidate in $candidates) { Assert-UnlinkedPath $candidate }
     $record.phase = 'mask-and-test'
     $env:PATH = "$env:WINDIR/System32"
@@ -101,10 +102,8 @@ try {
             if (Test-Path -LiteralPath $candidate) { throw 'NSIS fallback Git remains present.' }
         }
         & "$env:WINDIR/System32/where.exe" git.exe 2>$null
-        if ($LASTEXITCODE -ne 1) { throw 'SearchPath absence not established.' }
-        foreach ($directory in $searchDirs) {
-            if (Test-Path -LiteralPath (Join-Path $directory 'git.exe')) { throw 'Search directory contains Git.' }
-        }
+        Confirm-WhereAbsence -ExitCode $LASTEXITCODE
+        Assert-SearchDirectoriesAbsent $searchDirs
     }
     $scenario = {
         $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$install") -WorkingDirectory $output -WindowStyle Hidden -PassThru
@@ -116,8 +115,8 @@ try {
         }
         $record.exitCode = $process.ExitCode
         if ($process.ExitCode -ne 2) { throw 'Expected missing-Git exit code 2.' }
-        Assert-NoProductState
-        $record.noProductState = $true
+        Assert-NoProductState -AllowEmptyInstallDirectory
+        $record.noPayloadRegistrationOrSettings = $true
     }
     Invoke-MissingGitTransaction -Candidates $candidates -Hide $hide -Restore $restore -CheckAbsent $absent -Scenario $scenario -Persist $persist -Record $record
 } catch {
