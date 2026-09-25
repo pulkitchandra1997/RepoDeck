@@ -24,6 +24,8 @@ Paths abbreviated in a row are relative to that row's first directory.
 - Alias identity, language hints and file status: [repository metadata](../architecture/repository-metadata.md).
 - Git and data security: [SECURITY.md](../../SECURITY.md) and
   [filter mitigation evidence](../testing/filter-security-mitigation-2026-09-14.md).
+- Subprocess ownership, cancellation and cleanup limits:
+  [owned subprocess lifetime](../architecture/owned-processes.md).
 - Confirmation behavior: [confirmation policy](../testing/confirmation-policy.md).
 - Reproducible repository layouts: [manual workspace fixtures](../testing/manual-workspace.md).
 - Installation: [human installation checks](../testing/human-installation.md) and

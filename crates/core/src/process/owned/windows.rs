@@ -5,7 +5,7 @@ use std::{
     os::windows::{io::AsRawHandle, process::CommandExt},
     process::{Child, Command, ExitStatus},
     ptr::{null, null_mut},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
@@ -25,7 +25,7 @@ use windows_sys::Win32::{
     },
 };
 
-const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+use super::{poll_until, CLEANUP_TIMEOUT};
 
 struct OwnedHandle(HANDLE);
 
@@ -44,34 +44,37 @@ pub(super) struct OwnedChild {
     job: OwnedHandle,
     parent_status: Option<ExitStatus>,
     finished: bool,
+    cleanup_deadline: Option<Instant>,
 }
 
 impl OwnedChild {
     pub(super) fn spawn(command: &mut Command) -> io::Result<Self> {
+        Self::spawn_with_setup(command, |child, job| {
+            if unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle() as HANDLE) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            resume_process_threads(child.id())
+        })
+    }
+
+    fn spawn_with_setup(
+        command: &mut Command,
+        setup: impl FnOnce(&Child, &OwnedHandle) -> io::Result<()>,
+    ) -> io::Result<Self> {
         let job = create_job()?;
         // Assignment happens before user code runs, so descendants cannot win the job race.
         command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
-        let mut child = command.spawn()?;
-        let process = child.as_raw_handle() as HANDLE;
-        if unsafe { AssignProcessToJobObject(job.0, process) } == 0 {
-            let error = io::Error::last_os_error();
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
-        if let Err(error) = resume_process_threads(child.id()) {
-            unsafe {
-                TerminateJobObject(job.0, 1);
-            }
-            let _ = child.wait();
-            return Err(error);
-        }
-        Ok(Self {
+        let child = command.spawn()?;
+        // Install the same bounded guard before assignment/resumption can fail.
+        let owned = Self {
             child,
             job,
             parent_status: None,
             finished: false,
-        })
+            cleanup_deadline: None,
+        };
+        setup(&owned.child, &owned.job)?;
+        Ok(owned)
     }
 
     pub(super) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
@@ -81,8 +84,8 @@ impl OwnedChild {
         if self.parent_status.is_none() {
             self.parent_status = self.child.try_wait()?;
         }
-        if self.parent_status.is_some() && self.active_processes()? == 0 {
-            self.finished = true;
+        if self.parent_status.is_some() {
+            self.terminate()?;
             return Ok(self.parent_status);
         }
         Ok(None)
@@ -92,22 +95,20 @@ impl OwnedChild {
         if self.finished {
             return Ok(());
         }
-        if self.active_processes()? > 0 && unsafe { TerminateJobObject(self.job.0, 1) } == 0 {
-            return Err(io::Error::last_os_error());
+        let deadline = *self
+            .cleanup_deadline
+            .get_or_insert_with(|| Instant::now() + CLEANUP_TIMEOUT);
+        unsafe {
+            TerminateJobObject(self.job.0, 1);
         }
-        if self.parent_status.is_none() {
-            self.parent_status = Some(self.child.wait()?);
-        }
-        let deadline = Instant::now() + CLEANUP_TIMEOUT;
-        while self.active_processes()? > 0 {
-            if Instant::now() >= deadline {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "owned job did not terminate",
-                ));
+        // The exact process handle also covers failure before job assignment.
+        let _ = self.child.kill();
+        poll_until(deadline, || {
+            if self.parent_status.is_none() {
+                self.parent_status = self.child.try_wait()?;
             }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+            Ok((self.parent_status.is_some() && self.active_processes()? == 0).then_some(()))
+        })?;
         self.finished = true;
         Ok(())
     }
@@ -189,4 +190,61 @@ fn resume_process_threads(process_id: u32) -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{os::windows::io::AsHandle, time::Duration};
+    use windows_sys::Win32::{Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject};
+
+    #[test]
+    fn setup_failures_before_and_after_assignment_clean_exact_suspended_child() {
+        for assigned in [false, true] {
+            let mut handle = None;
+            let start = Instant::now();
+            let result = OwnedChild::spawn_with_setup(
+                &mut Command::new(std::env::current_exe().unwrap()),
+                |child, job| {
+                    handle = Some(child.as_handle().try_clone_to_owned().unwrap());
+                    if assigned {
+                        assert_ne!(
+                            unsafe {
+                                AssignProcessToJobObject(job.0, child.as_raw_handle() as HANDLE)
+                            },
+                            0
+                        );
+                    }
+                    Err(io::Error::other("injected setup failure"))
+                },
+            );
+            assert!(result.is_err());
+            assert!(start.elapsed() < Duration::from_secs(3));
+            assert_eq!(
+                unsafe { WaitForSingleObject(handle.unwrap().as_raw_handle() as HANDLE, 1000) },
+                WAIT_OBJECT_0
+            );
+        }
+    }
+
+    #[test]
+    fn expired_cleanup_budget_is_reused_by_drop() {
+        let mut child = OwnedChild::spawn_with_setup(
+            &mut Command::new(std::env::current_exe().unwrap()),
+            |_, _| Ok(()),
+        )
+        .unwrap();
+        let handle = child.child.as_handle().try_clone_to_owned().unwrap();
+        let deadline = Instant::now();
+        child.cleanup_deadline = Some(deadline);
+        let start = Instant::now();
+        let _ = child.terminate();
+        assert_eq!(child.cleanup_deadline, Some(deadline));
+        drop(child);
+        assert!(start.elapsed() < Duration::from_millis(500));
+        assert_eq!(
+            unsafe { WaitForSingleObject(handle.as_raw_handle() as HANDLE, 1000) },
+            WAIT_OBJECT_0
+        );
+    }
 }

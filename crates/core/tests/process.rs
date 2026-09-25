@@ -263,17 +263,17 @@ fn output_limit_terminates_owned_descendants() {
 }
 
 #[test]
-fn parent_exit_does_not_release_owned_descendants() {
+fn parent_exit_cleans_descendants_and_preserves_parent_status() {
     let root = tempfile::tempdir().unwrap();
     let marker = root.path().join("orphan");
 
     let result = run(
         &mut tree_child("tree-exit", &marker),
-        Duration::from_millis(250),
+        Duration::from_secs(3),
         4096,
         &AtomicBool::new(false),
     );
 
-    assert_eq!(result.unwrap_err(), ProcessError::Timeout);
+    assert!(result.unwrap().status.success());
     assert_marker_stops(&marker);
 }
