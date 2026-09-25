@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import type { Backend, ScanProgress, Settings, Snapshot } from "./types";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const settings: Settings = {
   schemaVersion: 1,
   onboardingCompleted: true,
@@ -76,6 +76,120 @@ function backend(): Backend {
   };
 }
 describe("Workspace experience", () => {
+  async function freshnessFixture() {
+    const api = backend();
+    api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [
+      { id: 'one', name: 'First', rootPath: '/first' },
+      { id: 'two', name: 'Second', rootPath: '/second' },
+    ] });
+    const scans: { id: string; resolve: (value: Snapshot) => void; reject: (error: Error) => void; publish?: (progress: ScanProgress) => void }[] = [];
+    api.scan = (id, publish) => new Promise((resolve, reject) => { scans.push({ id, resolve, reject, publish }); });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 16, 10));
+    await act(async () => { render(<App backend={api} />); });
+    const refresh = () => userEvent.click(screen.getByRole('button', { name: 'Refresh workspace' }));
+    const succeed = (index: number) => act(async () => scans[index].resolve(snapshot));
+    const failScan = (index: number, message = 'Fixture scan failed') => act(async () => scans[index].reject(new Error(message)));
+    const freshness = () => screen.queryByRole('region', { name: 'Workspace freshness' });
+    return { scans, clock, refresh, succeed, failScan, freshness };
+  }
+  it('keeps stale data and its last success visible after dismissal and throughout retry, then clears on success', async () => {
+    const f = await freshnessFixture();
+    await f.succeed(0);
+    await f.refresh();
+    expect(f.freshness()).toBeNull();
+    await f.failScan(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss error' }));
+    expect(f.freshness()?.textContent).toContain('Workspace data may be out of date');
+    expect(f.freshness()?.querySelector('time')?.dateTime).toBe('2026-09-16T10:00:00.000Z');
+    await userEvent.click(screen.getByRole('tab', { name: 'Files' }));
+    await userEvent.click(screen.getByRole('button', { name: /^AGENTS.md,/ }));
+    expect(await screen.findByText('Project instructions')).toBeTruthy();
+    await f.refresh();
+    expect(f.freshness()?.textContent).toContain('Workspace data may be out of date');
+    f.clock.mockReturnValue(Date.UTC(2026, 8, 16, 11));
+    await f.succeed(2);
+    expect(f.freshness()).toBeNull();
+    await f.refresh();
+    await f.failScan(3);
+    expect(f.freshness()?.querySelector('time')?.dateTime).toBe('2026-09-16T11:00:00.000Z');
+  });
+  it('keeps first-scan failure visible without inventing a successful timestamp', async () => {
+    const f = await freshnessFixture();
+    await f.failScan(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss error' }));
+    expect(f.freshness()?.textContent).toContain('No successful refresh in this session');
+    expect(f.freshness()?.querySelector('time')).toBeNull();
+    await f.refresh();
+    await f.succeed(1);
+    expect(f.freshness()).toBeNull();
+  });
+  it('isolates stale flags and last-success timestamps across workspace navigation', async () => {
+    const f = await freshnessFixture();
+    await f.succeed(0);
+    await f.refresh();
+    await f.failScan(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Second' }));
+    expect(f.freshness()).toBeNull();
+    await f.failScan(2);
+    expect(f.freshness()?.textContent).toContain('No successful refresh in this session');
+    await userEvent.click(screen.getByRole('button', { name: 'First' }));
+    expect(f.freshness()?.querySelector('time')?.dateTime).toBe('2026-09-16T10:00:00.000Z');
+    await f.succeed(3);
+    expect(f.freshness()).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Second' }));
+    expect(f.freshness()?.textContent).toContain('No successful refresh in this session');
+  });
+  it.each(['success', 'failure'])('ignores a departed scan late %s for both workspaces freshness', async outcome => {
+    const f = await freshnessFixture();
+    await f.succeed(0);
+    await f.refresh();
+    await f.failScan(1);
+    await f.refresh();
+    await userEvent.click(screen.getByRole('button', { name: 'Second' }));
+    f.clock.mockReturnValue(Date.UTC(2026, 8, 16, 11));
+    await f.succeed(3);
+    if (outcome === 'success') await f.succeed(2); else await f.failScan(2, 'Late failure');
+    expect(f.freshness()).toBeNull();
+    expect(screen.queryByText('Late failure')).toBeNull();
+    await f.refresh();
+    await f.failScan(4);
+    expect(f.freshness()?.querySelector('time')?.dateTime).toBe('2026-09-16T11:00:00.000Z');
+    await userEvent.click(screen.getByRole('button', { name: 'First' }));
+    expect(f.freshness()?.querySelector('time')?.dateTime).toBe('2026-09-16T10:00:00.000Z');
+  });
+  it('does not mark cancellation as failure or let it clear an existing stale flag', async () => {
+    const f = await freshnessFixture();
+    await f.succeed(0);
+    await f.refresh();
+    await f.failScan(1, 'Scan cancelled');
+    expect(f.freshness()).toBeNull();
+    await f.refresh();
+    await f.failScan(2);
+    await f.refresh();
+    await f.failScan(3, 'Scan cancelled');
+    expect(f.freshness()?.querySelector('time')?.dateTime).toBe('2026-09-16T10:00:00.000Z');
+  });
+  it('marks watcher refresh failure stale and clears it after a successful background refresh', async () => {
+    const api = backend();
+    api.settings = async () => ({ ...settings, autoRefresh: true, workspaces: [{ id: 'one', name: 'First', rootPath: '/first' }] });
+    let changed: (notice: { error: string | null }) => void = () => {};
+    api.watch = async (_id, onChange) => { changed = onChange; return () => {}; };
+    let rejectRefresh = false;
+    let scans = 0;
+    api.scan = async () => { scans++; if (rejectRefresh) throw new Error('Watcher refresh failed'); return snapshot; };
+    render(<App backend={api} />);
+    await screen.findByRole('button', { name: /^api/ });
+    await waitFor(() => expect(scans).toBeGreaterThan(1));
+    rejectRefresh = true;
+    act(() => changed({ error: null }));
+    await screen.findByRole('region', { name: 'Workspace freshness' });
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss error' }));
+    expect(screen.getByRole('button', { name: /^api/ })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Workspace freshness' }).querySelector('time')).toBeTruthy();
+    rejectRefresh = false;
+    act(() => changed({ error: null }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Workspace freshness' })).toBeNull());
+  });
   async function renderScannedWorkspace(result: Snapshot = snapshot) {
     const api = backend();
     api.settings = async () => ({ ...settings, autoRefresh: false, workspaces: [{ id: 'one', name: 'Project', rootPath: '/project' }] });
