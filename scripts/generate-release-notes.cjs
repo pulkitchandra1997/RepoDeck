@@ -42,7 +42,7 @@ function generateReleaseNotes(data, version, commit, manifests) {
   const labels = ['Windows x64 installer (.exe)', 'macOS Apple Silicon installer (.dmg)', 'macOS Intel installer (.dmg)'];
   const lines = [`# RepoDeck ${version}`, '', '## Downloads', '',
     ...manifests.map((item, i) => `- **[${labels[i]}](${download}/${item.file})**`), '',
-    'These are unsigned development previews, not stable releases. Windows SmartScreen warnings and macOS distribution restrictions may apply. They are not signed or notarized. Do not disable operating-system security controls.', '',
+    'These are development previews, not stable releases. The Windows installer is unsigned. The macOS apps are ad-hoc signed, not Developer ID signed or notarized. Windows SmartScreen warnings and macOS distribution restrictions may apply. Do not disable operating-system security controls.', '',
     'Git is required for repository status. Use trusted local checkouts and disposable test projects first. Automatic updates are not implemented.', ''];
   for (const [key, heading] of [['features', 'Features'], ['fixes', 'Fixes'], ['limitations', 'Known Limitations']]) {
     lines.push(`## ${heading}`, '', ...data[key].map(item => `- ${item}`), '');
