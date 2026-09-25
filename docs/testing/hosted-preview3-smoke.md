@@ -33,7 +33,10 @@ reported as unverified. The harness does not claim to track WebKit descendants o
 all OS caches; GitHub's disposable machine teardown supplies that boundary.
 
 Evidence artifacts contain OS version, native architecture, release hash, source
-SHA, run/attempt URL, command outcomes and process observation. A
+SHA (`releaseSourceSha`, pinned to `bbf7490b518139d138f5656291724f51b9a97550`),
+the separate harness commit (`run.harnessSha`), run/attempt URL, command outcomes
+and process observation. Errors after spawn are retained and do not prove exit;
+cleanup continues within its bounds and requires an exit event. A
 `process-survived` outcome means only the direct executable remained alive for
 the observation interval and owned-process cleanup completed.
 

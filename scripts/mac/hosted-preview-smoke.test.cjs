@@ -70,6 +70,22 @@ test('retains cleanup errors instead of losing owned-process evidence', async ()
   assert.equal(result.cleanupComplete, false);
   assert.match(result.cleanupErrors[0], /fixture permission denied/);
 });
+test('asynchronous kill errors without exit retain the live child and attempt both signals', async () => {
+  const child = new EventEmitter();
+  child.pid = 123;
+  const sent = [];
+  child.kill = signal => {
+    sent.push(signal);
+    queueMicrotask(() => child.emit('error', new Error(`failed ${signal}`)));
+    return false;
+  };
+  child.unref = () => {};
+  const result = await observeChild(child, 1, 1);
+  assert.equal(result.cleanupComplete, false);
+  assert.equal(result.spawnError, undefined);
+  assert.deepEqual(sent, ['SIGTERM', 'SIGKILL']);
+  assert.deepEqual(result.processErrors, ['failed SIGTERM', 'failed SIGKILL']);
+});
 test('pins both reviewed published asset hashes', () => {
   assert.equal(guardHost(env, 'darwin', 'arm64').sha256, 'b51bf924b871eb5ad1c26fa1202029faa9f6b7661827a6ad7165b26288360881');
   assert.equal(guardHost({ ...env, RUNNER_ARCH: 'X64', REPODECK_SMOKE_RUNNER: 'macos-15-intel' }, 'darwin', 'x64').sha256, '23d0220977dd7d73c13101906df38524c952968f623c0633a38edb00a2f0319a');

@@ -25,11 +25,21 @@ function guardHost(env, platform = process.platform, arch = process.arch) {
 async function observeChild(child, duration = 15000, grace = 5000) {
   const result = { pid: child.pid ?? null, survived: false, exitCode: null, signal: null, signals: [], stdout: '', stderr: '', cleanupComplete: false };
   let exited = false;
+  let spawned = Number.isInteger(child.pid) && child.pid > 0;
   let finish;
   const done = new Promise(resolve => { finish = resolve; });
   child.stdout?.on('data', chunk => { result.stdout = (result.stdout + chunk).slice(-65536); });
   child.stderr?.on('data', chunk => { result.stderr = (result.stderr + chunk).slice(-65536); });
-  child.once('error', error => { result.spawnError = error.message; exited = true; finish(); });
+  child.once('spawn', () => { spawned = true; result.pid = child.pid; });
+  child.on('error', error => {
+    if (!spawned && child.pid == null) {
+      result.spawnError = error.message;
+      exited = true; // No process was created, so there is nothing to terminate.
+      finish();
+    } else {
+      (result.processErrors ||= []).push(error.message);
+    }
+  });
   child.once('exit', (code, signal) => { result.exitCode = code; result.signal = signal; exited = true; finish(); });
   const wait = async ms => {
     let timer;
@@ -63,7 +73,8 @@ async function main() {
   const evidenceFile = path.join(evidenceDirectory, `smoke-${target.arch}.json`);
   const evidence = {
     schemaVersion: 1, version: '0.1.1-preview.3', target,
-    run: { id: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, sha: process.env.GITHUB_SHA, url: `https://github.com/pulkitchandra1997/RepoDeck/actions/runs/${process.env.GITHUB_RUN_ID}` },
+    releaseSourceSha: 'bbf7490b518139d138f5656291724f51b9a97550',
+    run: { id: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, harnessSha: process.env.GITHUB_SHA, url: `https://github.com/pulkitchandra1997/RepoDeck/actions/runs/${process.env.GITHUB_RUN_ID}` },
     startedAt: new Date().toISOString(), commands: [], outcome: 'failed',
     pending: ['Real browser download quarantine and Gatekeeper', 'Finder/LaunchServices first launch', 'Interactive GUI functionality, Git present/missing and repository folder permissions', 'Copy to /Applications, settings retention, upgrade, reopen and full removal lifecycle'],
     limitations: 'curl may omit browser quarantine. Direct bundle executable survival is not GUI readiness or full lifecycle coverage. This smoke cannot close issue 19.',
@@ -110,6 +121,7 @@ async function main() {
     evidence.launch = await observeChild(spawn(executable, [], { cwd: root, env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: root, REPODECK_DATA_DIR: settings }, stdio: ['ignore', 'pipe', 'pipe'] }));
     assert.ok(evidence.launch.survived, 'Copied executable failed to survive 15 seconds; see launch evidence');
     assert.ok(evidence.launch.cleanupComplete, 'Owned process cleanup did not complete');
+    assert.ok(!evidence.launch.processErrors?.length && !evidence.launch.cleanupErrors?.length, 'Owned process reported errors; see launch evidence');
     evidence.outcome = 'process-survived';
   } catch (error) {
     evidence.failure = error.message;
