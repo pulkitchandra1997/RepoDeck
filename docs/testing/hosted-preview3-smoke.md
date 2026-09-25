@@ -32,6 +32,13 @@ job cancellation or runner loss can prevent cleanup/evidence upload; it must be
 reported as unverified. The harness does not claim to track WebKit descendants or
 all OS caches; GitHub's disposable machine teardown supplies that boundary.
 
+Both synchronous command runners use a 120-second timeout with explicit SIGKILL
+for the directly spawned command. Node's default SIGTERM can be handled or ignored,
+leaving spawnSync waiting after its timeout; see the
+[Node spawnSync documentation](https://nodejs.org/api/child_process.html#child_processspawnsynccommand-args-options).
+This hard-stop policy does not promise recovery from an unresponsive kernel or
+terminate arbitrary descendants. The outer hosted job deadline remains in place.
+
 Evidence artifacts contain OS version, native architecture, release hash, source
 SHA (`releaseSourceSha`, pinned to `bbf7490b518139d138f5656291724f51b9a97550`),
 the separate harness commit (`run.harnessSha`), run/attempt URL, command outcomes
@@ -51,5 +58,5 @@ authorize a release.
 Safe local verification (no RepoDeck launch):
 
 ```sh
-node --test scripts/mac/hosted-preview-smoke.test.cjs
+node --test scripts/mac/hosted-preview-smoke.test.cjs scripts/mac/command-timeout.test.cjs scripts/mac/validate-dmg.test.cjs
 ```

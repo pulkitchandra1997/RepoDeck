@@ -26,6 +26,7 @@ function defaultExecute(command, args, options = {}) {
     input: options.input,
     maxBuffer: 16 * 1024 * 1024,
     timeout: 120000,
+    killSignal: 'SIGKILL',
     windowsHide: true,
   });
   if (result.error) throw result.error;
@@ -510,6 +511,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  defaultExecute,
   appleShortVersion,
   extractPlistXml,
   parseCliArguments,

@@ -63,6 +63,16 @@ async function observeChild(child, duration = 15000, grace = 5000) {
   return result;
 }
 
+function commandRunner(evidence) {
+  return (command, args, options = {}) => {
+    const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120000, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024, input: options.input });
+    const record = { command, args, status: result.status, signal: result.signal, stdout: (result.stdout || '').slice(-65536), stderr: (result.stderr || '').slice(-65536), error: result.error?.message };
+    evidence.commands.push(record);
+    if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message || record.stderr || `exit ${result.status}`}`);
+    return record.stdout;
+  };
+}
+
 async function main() {
   const target = guardHost(process.env);
   const temp = await fs.realpath(process.env.RUNNER_TEMP);
@@ -79,13 +89,7 @@ async function main() {
     pending: ['Real browser download quarantine and Gatekeeper', 'Finder/LaunchServices first launch', 'Interactive GUI functionality, Git present/missing and repository folder permissions', 'Copy to /Applications, settings retention, upgrade, reopen and full removal lifecycle'],
     limitations: 'curl may omit browser quarantine. Direct bundle executable survival is not GUI readiness or full lifecycle coverage. This smoke cannot close issue 19.',
   };
-  const run = (command, args, options = {}) => {
-    const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024, input: options.input });
-    const record = { command, args, status: result.status, signal: result.signal, stdout: (result.stdout || '').slice(-65536), stderr: (result.stderr || '').slice(-65536), error: result.error?.message };
-    evidence.commands.push(record);
-    if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message || record.stderr || `exit ${result.status}`}`);
-    return record.stdout;
-  };
+  const run = commandRunner(evidence);
   const mount = path.join(root, 'mount');
   let attachAttempted = false;
   let detached = false;
@@ -143,4 +147,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
-module.exports = { guardHost, observeChild };
+module.exports = { guardHost, observeChild, commandRunner };
