@@ -68,7 +68,7 @@ jobs:
       - run: npm run check:release
       - run: npm run test:release
       - name: macOS DMG validator regressions
-        run: node --test scripts/mac/validate-dmg.test.cjs
+        run: node --test scripts/mac/validate-dmg.test.cjs scripts/mac/hosted-preview-smoke.test.cjs scripts/mac/command-timeout.test.cjs
       - name: Download published v0.1.0 DMG for native diagnosis
         if: runner.os == 'macOS'
         shell: bash
