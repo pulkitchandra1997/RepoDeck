@@ -1,0 +1,42 @@
+name: Hosted preview 3 process smoke (manual only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    if: github.repository == 'pulkitchandra1997/RepoDeck' && github.event_name == 'workflow_dispatch'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    env:
+      REPODECK_HOSTED_SMOKE: preview3-disposable-only
+      REPODECK_SMOKE_RUNNER: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Safe harness regressions
+        run: node --test scripts/mac/hosted-preview-smoke.test.cjs
+      - name: Verify, copy, eject and observe owned app process
+        run: node scripts/mac/hosted-preview-smoke.cjs
+      - name: Retain success or failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-preview3-smoke-${{ matrix.os }}-${{ github.run_attempt }}
+          path: .tools/hosted-preview3-evidence/
+          if-no-files-found: warn
+      - name: Record coverage boundary
+        if: always()
+        shell: bash
+        run: |
+          echo 'Hosted process smoke only. Inspect evidence for outcome; absent evidence is unverified.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Browser quarantine/Gatekeeper, Finder first launch, interactive GUI and full installation/upgrade/removal lifecycle remain pending. This run cannot close issue #19.' >> "$GITHUB_STEP_SUMMARY"
