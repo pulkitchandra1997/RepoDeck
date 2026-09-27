@@ -1,9 +1,12 @@
 use std::{
     io::{Read, Seek, SeekFrom, Write},
-    process::{Child, Command, Output, Stdio},
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
+
+mod owned;
+use owned::OwnedChild;
 
 #[derive(Debug, PartialEq)]
 pub enum ProcessError {
@@ -12,14 +15,6 @@ pub enum ProcessError {
     Timeout,
     Cancelled,
     OutputLimit,
-}
-
-struct RunningChild(Child);
-impl Drop for RunningChild {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
 }
 
 pub fn run(
@@ -52,15 +47,11 @@ pub fn run_input(
         .stdin(Stdio::from(stdin))
         .stdout(stdout.try_clone().map_err(|_| ProcessError::Io)?)
         .stderr(stderr.try_clone().map_err(|_| ProcessError::Io)?);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
     let start = Instant::now();
-    let mut child = RunningChild(command.spawn().map_err(|_| ProcessError::Start)?);
+    let mut child = OwnedChild::spawn(command).map_err(|_| ProcessError::Start)?;
     loop {
         if cancelled.load(Ordering::Relaxed) {
+            child.terminate().map_err(|_| ProcessError::Io)?;
             return Err(ProcessError::Cancelled);
         }
         let bytes = stdout
@@ -69,12 +60,14 @@ pub fn run_input(
             .len()
             .saturating_add(stderr.metadata().map_err(|_| ProcessError::Io)?.len());
         if bytes > max_bytes {
+            child.terminate().map_err(|_| ProcessError::Io)?;
             return Err(ProcessError::OutputLimit);
         }
         if start.elapsed() >= timeout {
+            child.terminate().map_err(|_| ProcessError::Io)?;
             return Err(ProcessError::Timeout);
         }
-        if let Some(status) = child.0.try_wait().map_err(|_| ProcessError::Io)? {
+        if let Some(status) = child.try_wait().map_err(|_| ProcessError::Io)? {
             stdout
                 .seek(SeekFrom::Start(0))
                 .map_err(|_| ProcessError::Io)?;
