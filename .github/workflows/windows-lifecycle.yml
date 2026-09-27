@@ -1,0 +1,26 @@
+name: Isolated Windows installer lifecycle
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lifecycle:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test isolation guard without installation
+        shell: pwsh
+        run: ./scripts/windows/installer-lifecycle.test.ps1
+      - name: Verify published preview 3 lifecycle in disposable VM
+        shell: pwsh
+        run: ./scripts/windows/installer-lifecycle.ps1
+      - name: Retain bounded lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-preview3-lifecycle
+          path: ${{ runner.temp }}/repodeck-lifecycle-evidence/result.json
+          if-no-files-found: warn

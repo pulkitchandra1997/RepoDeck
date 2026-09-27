@@ -44,6 +44,8 @@ export default function App({ backend }: { backend: Backend }) {
   const [active, setActive] = useState("");
   const [snapshot, setSnapshot] = useState(empty);
   const committedSnapshot = useRef<Snapshot>(empty);
+  const [freshnessByWorkspace, setFreshnessByWorkspace] = useState<Record<string, { lastSuccess: number | null; stale: boolean }>>({});
+  const freshness = freshnessByWorkspace[active];
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [tab, setTab] = useState("Repositories");
   const [query, setQuery] = useState("");
@@ -178,6 +180,8 @@ export default function App({ backend }: { backend: Backend }) {
       if (token === generation.current) {
         committedSnapshot.current = value;
         setSnapshot(value);
+        const lastSuccess = Date.now();
+        setFreshnessByWorkspace(current => ({ ...current, [id]: { lastSuccess, stale: false } }));
         const target = previewTarget.current;
         if (target?.id === id) void loadPreview(target, false);
       }
@@ -185,7 +189,10 @@ export default function App({ backend }: { backend: Backend }) {
       if (token === generation.current) {
         setSnapshot(previous);
         if ((e instanceof Error ? e.message : String(e)).includes('Scan cancelled')) setNotice('Scan cancelled');
-        else fail(e);
+        else {
+          setFreshnessByWorkspace(current => ({ ...current, [id]: { lastSuccess: current[id]?.lastSuccess ?? null, stale: true } }));
+          fail(e);
+        }
       }
     } finally {
       receiving = false;
@@ -512,6 +519,14 @@ export default function App({ backend }: { backend: Backend }) {
         )}
         {workspace ? (
           <>
+            {freshness?.stale && (
+              <div className="warnings" role="region" aria-label="Workspace freshness" aria-live="polite">
+                <strong>{freshness.lastSuccess === null ? 'Workspace scan failed.' : 'Workspace data may be out of date.'}</strong>{' '}
+                {freshness.lastSuccess === null ? 'No successful refresh in this session.' : <>
+                  Last successful refresh: <time dateTime={new Date(freshness.lastSuccess).toISOString()}>{new Date(freshness.lastSuccess).toLocaleString()}</time>.
+                </>}
+              </div>
+            )}
             <div className="metrics" role="region" aria-label="Workspace summary">
               <span>
                 <strong>{snapshot.repositories.length}</strong> repositories
