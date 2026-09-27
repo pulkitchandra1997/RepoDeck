@@ -153,6 +153,9 @@ jobs:
       - name: Fresh production browser regression
         if: runner.os == 'Windows'
         run: npm run test:repository-metadata
+      - name: Current workspace and repository accessibility
+        if: runner.os == 'Windows'
+        run: node scripts/verify-selection-accessibility.cjs
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build Windows installer
         if: runner.os == 'Windows'
