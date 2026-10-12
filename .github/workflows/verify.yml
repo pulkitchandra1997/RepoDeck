@@ -195,7 +195,7 @@ jobs:
             --evidence ".tools/dmg-evidence/generated-${{ matrix.dmg_arch }}.json"
       - name: Upload native macOS DMG evidence
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-dmg-evidence-${{ matrix.target }}
           path: .tools/dmg-evidence/*.json
@@ -203,14 +203,14 @@ jobs:
       - name: Stage versioned installers
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/stage-release.cjs target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }} ${{ matrix.target }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: release-${{ matrix.target }}
           path: .tools/release-assets/*
           include-hidden-files: true
           if-no-files-found: error
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: repodeck-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/bundle/**
@@ -227,7 +227,7 @@ jobs:
         run: test "$DESKTOP_RESULT" = success
       - name: Create artifact round-trip fixture
         run: node -e "const fs=require('node:fs'); fs.mkdirSync('artifact-input'); fs.writeFileSync('artifact-input/fixture.txt','RepoDeck artifact compatibility');"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compatibility-fixture
           path: artifact-input/fixture.txt
