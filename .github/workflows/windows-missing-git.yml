@@ -21,7 +21,7 @@ jobs:
         run: ./scripts/windows/missing-git.ps1
       - name: Preserve negative-case evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: windows-preview3-missing-git
           path: ${{ runner.temp }}/repodeck-missing-git/result.json
